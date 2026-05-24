@@ -154,8 +154,6 @@ def _gen_params(params: list[LeanParam]) -> str:
     parts = []
     for p in params:
         parts.append(_gen_param(p))
-    if len(parts) <= 2:
-        return " (" + ") (".join(parts) + ")"
     return " (" + ") (".join(parts) + ")"
 
 
@@ -241,12 +239,40 @@ def _gen_expr_App(node: LeanExpr, parent_prec: int = 0) -> str:
     return f"{func_str} {arg_str}"
 
 
+_BINOP_PREC: dict[str, int] = {
+    "||": 1,
+    "&&": 2,
+    "==": 3, "!=": 3, "<": 3, ">": 3, "<=": 3, ">=": 3,
+    "+": 5, "-": 5,
+    "*": 6, "/": 6, "%": 6,
+    "^": 7,
+}
+
+
+def _binop_prec(op: str) -> int:
+    return _BINOP_PREC.get(op, 4)
+
+
+def _gen_binop_operand(node: LeanExpr, parent_op: str, is_right: bool) -> str:
+    """Wrap ``node`` in parens when needed to preserve operator precedence."""
+    if isinstance(node, LeanBinOp):
+        child_prec = _binop_prec(node.op)
+        parent_prec = _binop_prec(parent_op)
+        if child_prec < parent_prec or (is_right and child_prec == parent_prec):
+            return f"({_gen_expr_BinOp(node)})"
+    return _gen_expr(node)
+
+
 def _gen_expr_BinOp(node: LeanExpr, parent_prec: int = 0) -> str:
-    return f"{_gen_expr(node.left)} {node.op} {_gen_expr(node.right)}"
+    left = _gen_binop_operand(node.left, node.op, is_right=False)
+    right = _gen_binop_operand(node.right, node.op, is_right=True)
+    return f"{left} {node.op} {right}"
 
 
 def _gen_expr_UnaryOp(node: LeanExpr, parent_prec: int = 0) -> str:
-    return f"{node.op}{_gen_expr(node.operand)}"
+    operand = _gen_expr(node.operand)
+    sep = " " if node.op.isalpha() else ""
+    return f"{node.op}{sep}{operand}"
 
 
 def _gen_expr_TypeArrow(node: LeanExpr, parent_prec: int = 0) -> str:
@@ -315,7 +341,7 @@ def _gen_expr_Let(node: LeanExpr, parent_prec: int = 0) -> str:
     params = _gen_params(node.params)
     typ = f" : {_gen_expr(node.type)}" if node.type else ""
     val = _gen_expr(node.value)
-    return f"let {node.name}{params}{typ} := {val} in {_gen_expr(node.body)}"
+    return f"let {node.name}{params}{typ} := {val}; {_gen_expr(node.body)}"
 
 
 def _gen_expr_Have(node: LeanExpr, parent_prec: int = 0) -> str:

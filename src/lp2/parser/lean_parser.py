@@ -664,7 +664,10 @@ class LeanParser:
         elif self._peek().value == "=":
             self._advance()
         value = self._parse_expr()
-        self._expect("IN")
+        if self._peek().kind == "SEMI":
+            self._advance()
+        else:
+            self._expect("IN")
         body = self._parse_expr()
         return LeanLet(
             name=name, params=params, type=typ, value=value, body=body, is_mut=is_mut

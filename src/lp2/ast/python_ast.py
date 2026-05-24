@@ -348,3 +348,10 @@ class PyWalrus(PyExpr):
 class PyTypeAlias(PyStmt):
     name: PyExpr
     value: PyExpr
+
+
+@dataclass
+class PyMatchOr(PyExpr):
+    """OR pattern inside a match case: ``case 0 | 1 | 2:``."""
+
+    patterns: list[PyExpr]

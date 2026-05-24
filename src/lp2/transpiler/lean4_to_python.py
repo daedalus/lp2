@@ -314,6 +314,36 @@ def _expr_py_if(n: LeanIf) -> PyExpr:
     return PyIfExp(test=test, body=then_expr, orelse=else_expr)
 
 
+def _expr_py_match(n: LeanMatch) -> PyExpr:
+    """Convert a LeanMatch used as a sub-expression into a ternary chain."""
+    subject = _expr_to_py(n.expr)
+    if not n.arms:
+        return PyConstant(None)
+    # Start with the last arm as the default value
+    result: PyExpr = _expr_to_py(n.arms[-1].rhs)
+    for arm in reversed(n.arms[:-1]):
+        pat = arm.pattern
+        body = _expr_to_py(arm.rhs)
+        if isinstance(pat, LeanPatternWild):
+            result = body
+        elif isinstance(pat, LeanPatternNum):
+            cond: PyExpr = PyCompare(
+                left=subject, ops=["=="], comparators=[PyConstant(pat.value)]
+            )
+            result = PyIfExp(test=cond, body=body, orelse=result)
+        elif isinstance(pat, LeanPatternCtor) and pat.name in ("true", "false"):
+            cond = subject if pat.name == "true" else PyUnaryOp(op="not", operand=subject)
+            result = PyIfExp(test=cond, body=body, orelse=result)
+        elif isinstance(pat, LeanPatternIdent):
+            cond = PyCompare(
+                left=subject, ops=["=="], comparators=[PyName(id=pat.name)]
+            )
+            result = PyIfExp(test=cond, body=body, orelse=result)
+        else:
+            result = body
+    return result
+
+
 _EXPR_TO_PY = {
     LeanIdent: _expr_py_ident,
     LeanNum: lambda n: PyConstant(value=n.value),
@@ -337,9 +367,7 @@ _EXPR_TO_PY = {
     LeanListLit: lambda n: PyList(elts=[_expr_to_py(e) for e in n.elts]),
     LeanTupleLit: lambda n: PyTuple(elts=[_expr_to_py(e) for e in n.elts]),
     LeanStructInst: lambda n: PyName(n.struct_name),
-    LeanMatch: lambda n: PyCall(
-        func=PyName("match"), args=[_expr_to_py(n.expr)], kwargs=[]
-    ),
+    LeanMatch: _expr_py_match,
     LeanDo: lambda _: PyName("do_block"),
     LeanCalc: lambda _: PyName("calc_block"),
     LeanBy: lambda _: PyName("by_block"),
@@ -369,7 +397,7 @@ def _pattern_to_expr(node: LeanPattern) -> PyExpr:
         return PyName(id=node.name)
     elif isinstance(node, LeanPatternOr):
         if node.patterns:
-            return _pattern_to_expr(node.patterns[0])
+            return PyMatchOr(patterns=[_pattern_to_expr(p) for p in node.patterns])
         return PyName(id="_")
     return PyName(id="_")
 

@@ -158,6 +158,8 @@ def _py_pat_to_lean(node: PyExpr) -> LeanPattern:
         elif node.value is None:
             return LeanPatternCtor(name="none", patterns=[])
         return LeanPatternIdent(name=repr(node.value))
+    elif isinstance(node, PyMatchOr):
+        return LeanPatternOr(patterns=[_py_pat_to_lean(p) for p in node.patterns])
     return LeanPatternWild()
 
 
@@ -459,7 +461,7 @@ def _expr_list(node: PyList) -> LeanExpr:
     elts = [_expr_to_lean(e) for e in node.elts]
     if not elts:
         return LeanIdent("List.nil")
-    result: LeanExpr = LeanIdent(f"{_expr_to_lean(elts[-1])}.self")
+    result: LeanExpr = LeanIdent("List.nil")
     for e in reversed(elts):
         result = LeanApp(
             func=LeanApp(func=LeanIdent("List.cons"), arg=e), arg=result

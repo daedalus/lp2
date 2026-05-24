@@ -169,7 +169,7 @@ def _handle_ImportFrom(node: py_ast.stmt) -> PyStmt:
     return PyImport(names=[f"{module}.{alias.name}" for alias in node.names])
 
 def _handle_Raise(node: py_ast.stmt) -> PyStmt:
-    return PyRaise(exc=_convert_expr(node.exc))
+    return PyRaise(exc=_convert_expr(node.exc) if node.exc else PyConstant(None))
 
 def _handle_Try(node: py_ast.stmt) -> PyStmt:
     n = node  # type: ignore[attr-defined]
@@ -394,9 +394,6 @@ _EXPR_HANDLERS: dict[type, object] = {
     py_ast.Yield: _cvt_Yield,
     py_ast.YieldFrom: _cvt_YieldFrom,
     py_ast.NamedExpr: _cvt_NamedExpr,
-    py_ast.NameConstant: _cvt_NameConstant,
-    py_ast.Num: _cvt_Num,
-    py_ast.Str: _cvt_Str,
 }
 
 def _convert_expr(node: py_ast.expr | None) -> PyExpr | None:
@@ -477,7 +474,7 @@ def _convert_pattern(node: py_ast.pattern) -> PyExpr:
         return name
     elif isinstance(node, py_ast.MatchOr):
         patterns = [_convert_pattern(p) for p in node.patterns]
-        return patterns[0]  # simplified
+        return PyMatchOr(patterns=patterns)
     raise ValueError(f"Unknown pattern: {type(node).__name__}")
 
 
