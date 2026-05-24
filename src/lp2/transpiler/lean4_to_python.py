@@ -340,7 +340,7 @@ def _expr_py_match(n: LeanMatch) -> PyExpr:
             )
             result = PyIfExp(test=cond, body=body, orelse=result)
         else:
-            result = body
+            continue
     return result
 
 

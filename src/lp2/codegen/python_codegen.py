@@ -144,6 +144,8 @@ def _gen_stmt_Import(node: PyImport, indent: int) -> str:
 
 def _gen_stmt_Raise(node: PyRaise, indent: int) -> str:
     i = "    " * indent
+    if node.exc is None:
+        return f"{i}raise"
     return f"{i}raise {_gen_expr(node.exc)}"
 
 

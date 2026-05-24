@@ -73,7 +73,7 @@ class TestMatchOr:
         assert "0 | 1" in code
 
     def test_lean_match_or_roundtrip(self):
-        """OR pattern must survive Python→Lean→Python."""
+        """OR pattern must survive Python→Lean→Python round-trip."""
         src = (
             "def f(x: int) -> str:\n"
             "    match x:\n"
@@ -84,6 +84,15 @@ class TestMatchOr:
         )
         lean = py_to_lean(src)
         assert lean
+        py_result = lean_to_py(lean)
+        module = parse_python(py_result)
+        match_stmt = module.body[0].body[0]
+        first_case = match_stmt.cases[0]
+        from lp2.ast.python_ast import PyMatchOr
+        assert isinstance(first_case.pattern, PyMatchOr), (
+            f"Expected PyMatchOr after round-trip, got {type(first_case.pattern).__name__}"
+        )
+        assert len(first_case.pattern.patterns) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -163,12 +172,37 @@ class TestListLiteralTranspile:
         assert ".self" not in result
 
     def test_list_cons_nil_structure(self):
-        """List literal must build via List.cons/List.nil."""
+        """List literal must be constructed via nested List.cons ... List.nil."""
         result = py_to_lean(
             "def f() -> list:\n"
             "    return [1, 2]\n"
         )
-        assert "List.cons" in result or "List.nil" in result or "[" in result
+        cons_indices = []
+        start = 0
+        while True:
+            idx = result.find("List.cons", start)
+            if idx == -1:
+                break
+            cons_indices.append(idx)
+            start = idx + len("List.cons")
+
+        nil_idx = result.find("List.nil")
+
+        assert len(cons_indices) >= 2, (
+            f"Expected multiple List.cons applications in:\n{result}"
+        )
+        assert nil_idx != -1, f"Expected List.nil terminator in:\n{result}"
+        assert all(idx < nil_idx for idx in cons_indices), (
+            f"Expected all List.cons before List.nil in:\n{result}"
+        )
+
+        round_tripped = lean_to_py(result)
+        assert round_tripped.count("List.cons") >= 2, (
+            f"Expected multiple List.cons in round-trip, got:\n{round_tripped}"
+        )
+        assert "nil" in round_tripped, (
+            f"Expected nil terminator in round-trip, got:\n{round_tripped}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -337,13 +371,33 @@ class TestLeanMatchSubExpr:
             ],
         )
         result = _expr_to_py(match_node)
-        # Must NOT be a PyCall to a function named 'match'
-        from lp2.ast.python_ast import PyCall, PyName
+        from lp2.ast.python_ast import (
+            PyCall, PyName, PyIfExp,
+            PyModule, PyFunctionDef, PyReturn,
+        )
         assert not (
             isinstance(result, PyCall) and
             isinstance(result.func, PyName) and
             result.func.id == "match"
         ), "LeanMatch as sub-expr still produces invalid PyCall to 'match'"
+        # Must be a ternary chain: PyIfExp(test, body, orelse)
+        assert isinstance(result, PyIfExp), (
+            f"Expected PyIfExp chain, got {type(result).__name__}"
+        )
+        code = generate_python(
+            PyModule(body=[
+                PyFunctionDef(
+                    name="g",
+                    args=[("n", PyName("int"), None)],
+                    return_type=PyName("bool"),
+                    body=[PyReturn(value=result)],
+                )
+            ])
+        )
+        ns: dict = {}
+        exec(compile(code, "<test>", "exec"), ns)
+        assert ns["g"](0) is True
+        assert ns["g"](1) is False
 
 
 # ---------------------------------------------------------------------------

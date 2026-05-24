@@ -169,7 +169,7 @@ def _handle_ImportFrom(node: py_ast.stmt) -> PyStmt:
     return PyImport(names=[f"{module}.{alias.name}" for alias in node.names])
 
 def _handle_Raise(node: py_ast.stmt) -> PyStmt:
-    return PyRaise(exc=_convert_expr(node.exc) if node.exc else PyConstant(None))
+    return PyRaise(exc=_convert_expr(node.exc) if node.exc else None)
 
 def _handle_Try(node: py_ast.stmt) -> PyStmt:
     n = node  # type: ignore[attr-defined]

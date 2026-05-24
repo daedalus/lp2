@@ -118,7 +118,7 @@ class PyImport(PyStmt):
 
 @dataclass
 class PyRaise(PyStmt):
-    exc: PyExpr
+    exc: Optional[PyExpr]
 
 
 @dataclass
