@@ -70,6 +70,7 @@ def _gen_stmt_AugAssign(node: PyAugAssign, indent: int) -> str:
     i = "    " * indent
     return f"{i}{_gen_expr(node.target)} {node.op}= {_gen_expr(node.value)}"
 
+
 def _gen_stmt_AnnAssign(node: PyAnnAssign, indent: int) -> str:
     i = "    " * indent
     if node.value:
@@ -303,8 +304,12 @@ def _gen_expr_Constant(node: PyConstant, indent: int = 0) -> str:
 _PY_BINOP_PREC: dict[str, int] = {
     "or": 1,
     "and": 2,
-    "+": 5, "-": 5,
-    "*": 6, "/": 6, "//": 6, "%": 6,
+    "+": 5,
+    "-": 5,
+    "*": 6,
+    "/": 6,
+    "//": 6,
+    "%": 6,
     "**": 7,
 }
 

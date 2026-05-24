@@ -332,7 +332,9 @@ def _expr_py_match(n: LeanMatch) -> PyExpr:
             )
             result = PyIfExp(test=cond, body=body, orelse=result)
         elif isinstance(pat, LeanPatternCtor) and pat.name in ("true", "false"):
-            cond = subject if pat.name == "true" else PyUnaryOp(op="not", operand=subject)
+            cond = (
+                subject if pat.name == "true" else PyUnaryOp(op="not", operand=subject)
+            )
             result = PyIfExp(test=cond, body=body, orelse=result)
         elif isinstance(pat, LeanPatternIdent):
             cond = PyCompare(

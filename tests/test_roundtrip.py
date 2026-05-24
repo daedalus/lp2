@@ -1,7 +1,6 @@
 """Tests for round-trip fidelity: Python → Lean → Python and Lean → Python → Lean."""
 
-from lp2 import py_to_lean, lean_to_py
-
+from lp2 import lean_to_py, py_to_lean
 
 ROUND_TRIP_PY = """\
 def fact(n: int) -> int:

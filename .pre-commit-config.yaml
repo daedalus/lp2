@@ -1,16 +1,21 @@
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.9.0
+    rev: v0.15.7
     hooks:
       - id: ruff-format
+        types_or: [python]
+        files: ^src/
+      - id: ruff
+        types_or: [python]
+        files: ^src/
 
-  - repo: https://github.com/landscapeio/prospector-pre-commit
-    rev: v1.18.0
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.15.0
     hooks:
-      - id: prospector
-        additional_dependencies:
-          - ".[with_ruff,with_mypy]"
-        args: [--with-tool=ruff, --with-tool=mypy, --with-tool=pylint, --path=src/]
+      - id: mypy
+        args: [src/]
+        pass_filenames: false
+        additional_dependencies: ["pydantic"]
 
   - repo: https://github.com/semgrep/semgrep
     rev: v1.161.0

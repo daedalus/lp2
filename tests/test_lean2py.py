@@ -1,6 +1,7 @@
 """Tests for Lean4 → Python translation."""
 
 import pytest
+
 from lp2 import lean_to_py
 
 
@@ -53,7 +54,9 @@ class TestLeanToPyStructures:
         assert "class Point" in result
 
     def test_inductive(self):
-        result = lean_to_py("inductive Bool2 where\n  | true : Bool2\n  | false : Bool2\n")
+        result = lean_to_py(
+            "inductive Bool2 where\n  | true : Bool2\n  | false : Bool2\n"
+        )
         assert "class Bool2" in result
 
 

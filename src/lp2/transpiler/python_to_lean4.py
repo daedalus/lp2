@@ -1,7 +1,5 @@
-from typing import Optional
-from lp2.ast.python_ast import *
 from lp2.ast.lean4_ast import *
-
+from lp2.ast.python_ast import *
 
 _PY_TYPE_TO_LEAN = {
     "int": LeanIdent("Int"),
@@ -123,13 +121,13 @@ def _class_to_lean(node: PyClassDef) -> LeanStructure:
     return LeanStructure(name=name, params=[], extends=[], fields=fields)
 
 
-def _get_field_name(node: PyExpr) -> Optional[str]:
+def _get_field_name(node: PyExpr) -> str | None:
     if isinstance(node, PyName):
         return node.id
     return None
 
 
-def _assign_to_lean(node) -> Optional[LeanCommand]:
+def _assign_to_lean(node) -> LeanCommand | None:
     return None
 
 
@@ -166,27 +164,27 @@ def _py_pat_to_lean(node: PyExpr) -> LeanPattern:
 # ── Dispatch handlers for _stmt_to_lean_cmd ──────────────────────────
 
 
-def _cmd_func_def(node: PyFunctionDef) -> Optional[LeanCommand]:
+def _cmd_func_def(node: PyFunctionDef) -> LeanCommand | None:
     return _func_to_lean(node)
 
 
-def _cmd_class_def(node: PyClassDef) -> Optional[LeanCommand]:
+def _cmd_class_def(node: PyClassDef) -> LeanCommand | None:
     return _class_to_lean(node)
 
 
-def _cmd_assign(node) -> Optional[LeanCommand]:
+def _cmd_assign(node) -> LeanCommand | None:
     return _assign_to_lean(node)
 
 
-def _cmd_aug_assign(node) -> Optional[LeanCommand]:
+def _cmd_aug_assign(node) -> LeanCommand | None:
     return None
 
 
-def _cmd_import(node: PyImport) -> Optional[LeanCommand]:
+def _cmd_import(node: PyImport) -> LeanCommand | None:
     return LeanOpen(names=[n.split(".")[-1] for n in node.names])
 
 
-def _cmd_expr_stmt(node: PyExprStmt) -> Optional[LeanCommand]:
+def _cmd_expr_stmt(node: PyExprStmt) -> LeanCommand | None:
     if (
         isinstance(node.expr, PyCall)
         and isinstance(node.expr.func, PyName)
@@ -211,7 +209,7 @@ _STMT_TO_CMD = {
 }
 
 
-def _stmt_to_lean_cmd(node: PyStmt) -> Optional[LeanCommand]:
+def _stmt_to_lean_cmd(node: PyStmt) -> LeanCommand | None:
     handler = _STMT_TO_CMD.get(type(node))
     if handler:
         return handler(node)
@@ -490,9 +488,7 @@ def _expr_list(node: PyList) -> LeanExpr:
         return LeanIdent("List.nil")
     result: LeanExpr = LeanIdent("List.nil")
     for e in reversed(elts):
-        result = LeanApp(
-            func=LeanApp(func=LeanIdent("List.cons"), arg=e), arg=result
-        )
+        result = LeanApp(func=LeanApp(func=LeanIdent("List.cons"), arg=e), arg=result)
     return result
 
 

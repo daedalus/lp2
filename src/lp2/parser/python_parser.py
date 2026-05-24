@@ -1,6 +1,6 @@
 import ast as py_ast
-from lp2.ast.python_ast import *
 
+from lp2.ast.python_ast import *
 
 _TYPE_MAP = {
     int: "int",
@@ -88,23 +88,29 @@ def _handle_FunctionDef(node: py_ast.stmt) -> PyStmt:
         decorators=[_convert_expr(d) for d in n.decorator_list],
     )
 
+
 def _handle_AsyncFunctionDef(node: py_ast.stmt) -> PyStmt:
     n = node  # type: ignore[attr-defined]
     return PyAsyncFunctionDef(
-        name=n.name, args=_convert_args(n.args),
+        name=n.name,
+        args=_convert_args(n.args),
         return_type=_convert_expr(n.returns) if n.returns else None,
         body=[_convert_stmt(s) for s in n.body],
     )
 
+
 def _handle_ClassDef(node: py_ast.stmt) -> PyStmt:
     n = node  # type: ignore[attr-defined]
     return PyClassDef(
-        name=n.name, bases=[_convert_expr(b) for b in n.bases],
+        name=n.name,
+        bases=[_convert_expr(b) for b in n.bases],
         body=[_convert_stmt(s) for s in n.body],
     )
 
+
 def _handle_Return(node: py_ast.stmt) -> PyStmt:
     return PyReturn(value=_convert_expr(node.value) if node.value else None)
+
 
 def _handle_Assign(node: py_ast.stmt) -> PyStmt:
     n = node  # type: ignore[attr-defined]
@@ -116,17 +122,23 @@ def _handle_Assign(node: py_ast.stmt) -> PyStmt:
         value=_convert_expr(n.value),
     )
 
+
 def _handle_AugAssign(node: py_ast.stmt) -> PyStmt:
     n = node  # type: ignore[attr-defined]
     op = _AUGOP_MAP.get(type(n.op), str(type(n.op).__name__))
-    return PyAugAssign(target=_convert_expr(n.target), op=op, value=_convert_expr(n.value))
+    return PyAugAssign(
+        target=_convert_expr(n.target), op=op, value=_convert_expr(n.value)
+    )
+
 
 def _handle_AnnAssign(node: py_ast.stmt) -> PyStmt:
     n = node  # type: ignore[attr-defined]
     return PyAnnAssign(
-        target=_convert_expr(n.target), annotation=_convert_expr(n.annotation),
+        target=_convert_expr(n.target),
+        annotation=_convert_expr(n.annotation),
         value=_convert_expr(n.value) if n.value else None,
     )
+
 
 def _handle_If(node: py_ast.stmt) -> PyStmt:
     n = node  # type: ignore[attr-defined]
@@ -136,19 +148,24 @@ def _handle_If(node: py_ast.stmt) -> PyStmt:
         orelse=[_convert_stmt(s) for s in n.orelse],
     )
 
+
 def _handle_For(node: py_ast.stmt) -> PyStmt:
     n = node  # type: ignore[attr-defined]
     return PyFor(
-        target=_convert_expr(n.target), iter=_convert_expr(n.iter),
+        target=_convert_expr(n.target),
+        iter=_convert_expr(n.iter),
         body=[_convert_stmt(s) for s in n.body],
     )
+
 
 def _handle_AsyncFor(node: py_ast.stmt) -> PyStmt:
     n = node  # type: ignore[attr-defined]
     return PyAsyncFor(
-        target=_convert_expr(n.target), iter=_convert_expr(n.iter),
+        target=_convert_expr(n.target),
+        iter=_convert_expr(n.iter),
         body=[_convert_stmt(s) for s in n.body],
     )
+
 
 def _handle_While(node: py_ast.stmt) -> PyStmt:
     n = node  # type: ignore[attr-defined]
@@ -157,17 +174,22 @@ def _handle_While(node: py_ast.stmt) -> PyStmt:
         body=[_convert_stmt(s) for s in n.body],
     )
 
+
 def _handle_Expr(node: py_ast.stmt) -> PyStmt:
     return PyExprStmt(expr=_convert_expr(node.value))
+
 
 def _handle_Pass(node: py_ast.stmt) -> PyStmt:
     return PyPass()
 
+
 def _handle_Break(node: py_ast.stmt) -> PyStmt:
     return PyBreak()
 
+
 def _handle_Continue(node: py_ast.stmt) -> PyStmt:
     return PyContinue()
+
 
 def _handle_Match(node: py_ast.stmt) -> PyStmt:
     n = node  # type: ignore[attr-defined]
@@ -181,15 +203,19 @@ def _handle_Match(node: py_ast.stmt) -> PyStmt:
     ]
     return PyMatch(subject=_convert_expr(n.subject), cases=cases)
 
+
 def _handle_Import(node: py_ast.stmt) -> PyStmt:
     return PyImport(names=[alias.name for alias in node.names])
+
 
 def _handle_ImportFrom(node: py_ast.stmt) -> PyStmt:
     module = node.module or ""
     return PyImport(names=[f"{module}.{alias.name}" for alias in node.names])
 
+
 def _handle_Raise(node: py_ast.stmt) -> PyStmt:
     return PyRaise(exc=_convert_expr(node.exc) if node.exc else None)
+
 
 def _handle_Try(node: py_ast.stmt) -> PyStmt:
     n = node  # type: ignore[attr-defined]
@@ -200,12 +226,14 @@ def _handle_Try(node: py_ast.stmt) -> PyStmt:
         finalbody=[_convert_stmt(s) for s in n.finalbody] if n.finalbody else [],
     )
 
+
 def _handle_With(node: py_ast.stmt) -> PyStmt:
     n = node  # type: ignore[attr-defined]
     return PyWith(
         items=[_convert_withitem(item) for item in n.items],
         body=[_convert_stmt(s) for s in n.body],
     )
+
 
 def _handle_AsyncWith(node: py_ast.stmt) -> PyStmt:
     n = node  # type: ignore[attr-defined]
@@ -214,6 +242,7 @@ def _handle_AsyncWith(node: py_ast.stmt) -> PyStmt:
         body=[_convert_stmt(s) for s in n.body],
     )
 
+
 def _handle_Assert(node: py_ast.stmt) -> PyStmt:
     n = node  # type: ignore[attr-defined]
     return PyAssert(
@@ -221,20 +250,25 @@ def _handle_Assert(node: py_ast.stmt) -> PyStmt:
         msg=_convert_expr(n.msg) if n.msg else None,
     )
 
+
 def _handle_Global(node: py_ast.stmt) -> PyStmt:
     return PyGlobal(names=list(node.names))
+
 
 def _handle_Nonlocal(node: py_ast.stmt) -> PyStmt:
     return PyNonlocal(names=list(node.names))
 
+
 def _handle_Delete(node: py_ast.stmt) -> PyStmt:
     return PyDelete(targets=[_convert_expr(t) for t in node.targets])
+
 
 def _handle_TypeAlias(node: py_ast.stmt) -> PyStmt:
     return PyTypeAlias(
         name=_convert_expr(node.name),
         value=_convert_expr(node.value),
     )
+
 
 _STMT_HANDLERS: dict[type, object] = {
     py_ast.FunctionDef: _handle_FunctionDef,
@@ -267,6 +301,7 @@ _STMT_HANDLERS: dict[type, object] = {
 if hasattr(py_ast, "TypeAlias"):
     _STMT_HANDLERS[py_ast.TypeAlias] = _handle_TypeAlias
 
+
 def _convert_stmt(node: py_ast.stmt) -> PyStmt:
     handler = _STMT_HANDLERS.get(type(node))
     if handler is not None:
@@ -277,28 +312,37 @@ def _convert_stmt(node: py_ast.stmt) -> PyStmt:
 def _cvt_Name(node: py_ast.expr) -> PyExpr:
     return PyName(id=node.id)
 
+
 def _cvt_Constant(node: py_ast.expr) -> PyExpr:
     kind = "u" if node.kind == "u" else None
     return PyConstant(value=node.value, kind=kind)
 
+
 def _cvt_BinOp(node: py_ast.expr) -> PyExpr:
     op = _BINOP_MAP.get(type(node.op), str(type(node.op).__name__))
-    return PyBinOp(left=_convert_expr(node.left), op=op, right=_convert_expr(node.right))
+    return PyBinOp(
+        left=_convert_expr(node.left), op=op, right=_convert_expr(node.right)
+    )
+
 
 def _cvt_UnaryOp(node: py_ast.expr) -> PyExpr:
     op = _UNARYOP_MAP.get(type(node.op), str(type(node.op).__name__))
     return PyUnaryOp(op=op, operand=_convert_expr(node.operand))
 
+
 def _cvt_Compare(node: py_ast.expr) -> PyExpr:
     ops = [_CMPOP_MAP.get(type(o), str(type(o).__name__)) for o in node.ops]
     return PyCompare(
-        left=_convert_expr(node.left), ops=ops,
+        left=_convert_expr(node.left),
+        ops=ops,
         comparators=[_convert_expr(c) for c in node.comparators],
     )
+
 
 def _cvt_BoolOp(node: py_ast.expr) -> PyExpr:
     op = _BOOLOP_MAP.get(type(node.op), str(type(node.op).__name__))
     return PyBoolOp(op=op, values=[_convert_expr(v) for v in node.values])
+
 
 def _cvt_Call(node: py_ast.expr) -> PyExpr:
     return PyCall(
@@ -307,17 +351,22 @@ def _cvt_Call(node: py_ast.expr) -> PyExpr:
         kwargs=[(kw.arg, _convert_expr(kw.value)) for kw in node.keywords if kw.arg],
     )
 
+
 def _cvt_IfExp(node: py_ast.expr) -> PyExpr:
     return PyIfExp(
-        test=_convert_expr(node.test), body=_convert_expr(node.body),
+        test=_convert_expr(node.test),
+        body=_convert_expr(node.body),
         orelse=_convert_expr(node.orelse),
     )
+
 
 def _cvt_Attribute(node: py_ast.expr) -> PyExpr:
     return PyAttribute(value=_convert_expr(node.value), attr=node.attr)
 
+
 def _cvt_Subscript(node: py_ast.expr) -> PyExpr:
     return PySubscript(value=_convert_expr(node.value), slice=_convert_expr(node.slice))
+
 
 def _cvt_Slice(node: py_ast.expr) -> PyExpr:
     return PySlice(
@@ -326,14 +375,18 @@ def _cvt_Slice(node: py_ast.expr) -> PyExpr:
         step=_convert_expr(node.step) if node.step else None,
     )
 
+
 def _cvt_List(node: py_ast.expr) -> PyExpr:
     return PyList(elts=[_convert_expr(e) for e in node.elts])
+
 
 def _cvt_Tuple(node: py_ast.expr) -> PyExpr:
     return PyTuple(elts=[_convert_expr(e) for e in node.elts])
 
+
 def _cvt_Set(node: py_ast.expr) -> PyExpr:
     return PySet(elts=[_convert_expr(e) for e in node.elts])
+
 
 def _cvt_Dict(node: py_ast.expr) -> PyExpr:
     return PyDict(
@@ -341,12 +394,16 @@ def _cvt_Dict(node: py_ast.expr) -> PyExpr:
         values=[_convert_expr(v) for v in node.values],
     )
 
+
 def _cvt_Lambda(node: py_ast.expr) -> PyExpr:
     return PyLambda(
-        args=[(arg.arg, _convert_expr(arg.annotation) if arg.annotation else None)
-              for arg in node.args.args],
+        args=[
+            (arg.arg, _convert_expr(arg.annotation) if arg.annotation else None)
+            for arg in node.args.args
+        ],
         body=_convert_expr(node.body),
     )
+
 
 def _cvt_ListComp(node: py_ast.expr) -> PyExpr:
     return PyListComp(
@@ -354,41 +411,53 @@ def _cvt_ListComp(node: py_ast.expr) -> PyExpr:
         generators=[_convert_comprehension(g) for g in node.generators],
     )
 
+
 def _cvt_SetComp(node: py_ast.expr) -> PyExpr:
     return PySetComp(
         elt=_convert_expr(node.elt),
         generators=[_convert_comprehension(g) for g in node.generators],
     )
 
+
 def _cvt_DictComp(node: py_ast.expr) -> PyExpr:
     return PyDictComp(
-        key=_convert_expr(node.key), value=_convert_expr(node.value),
+        key=_convert_expr(node.key),
+        value=_convert_expr(node.value),
         generators=[_convert_comprehension(g) for g in node.generators],
     )
+
 
 def _cvt_Starred(node: py_ast.expr) -> PyExpr:
     return PyStarred(value=_convert_expr(node.value))
 
+
 def _cvt_Await(node: py_ast.expr) -> PyExpr:
     return PyAwait(value=_convert_expr(node.value))
+
 
 def _cvt_Yield(node: py_ast.expr) -> PyExpr:
     return PyYield(value=_convert_expr(node.value) if node.value else None)
 
+
 def _cvt_YieldFrom(node: py_ast.expr) -> PyExpr:
     return PyYieldFrom(value=_convert_expr(node.value))
+
 
 def _cvt_NamedExpr(node: py_ast.expr) -> PyExpr:
     return PyWalrus(target=_convert_expr(node.target), value=_convert_expr(node.value))
 
+
 def _cvt_NameConstant(node: py_ast.expr) -> PyExpr:
     return PyConstant(value=node.value)
+
 
 def _cvt_Num(node: py_ast.expr) -> PyExpr:
     return PyConstant(value=node.n)
 
+
 def _cvt_Str(node: py_ast.expr) -> PyExpr:
     return PyConstant(value=node.s)
+
 
 _EXPR_HANDLERS: dict[type, object] = {
     py_ast.Name: _cvt_Name,
@@ -416,6 +485,7 @@ _EXPR_HANDLERS: dict[type, object] = {
     py_ast.YieldFrom: _cvt_YieldFrom,
     py_ast.NamedExpr: _cvt_NamedExpr,
 }
+
 
 def _convert_expr(node: py_ast.expr | None) -> PyExpr | None:
     if node is None:

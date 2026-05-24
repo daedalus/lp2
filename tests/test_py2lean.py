@@ -1,6 +1,7 @@
 """Tests for Python → Lean4 translation."""
 
 import pytest
+
 from lp2 import py_to_lean
 
 

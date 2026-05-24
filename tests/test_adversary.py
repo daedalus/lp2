@@ -6,10 +6,11 @@ as identifiers, repeated constructs, and pathological forms.
 """
 
 import pytest
-from lp2 import py_to_lean, lean_to_py
 
+from lp2 import lean_to_py, py_to_lean
 
 # ── Zero / degenerate inputs ──────────────────────────────────────────
+
 
 class TestEdgeEmpty:
     def test_py_empty_string(self):
@@ -35,6 +36,7 @@ class TestEdgeEmpty:
 
 # ── Python keywords used as identifiers ───────────────────────────────
 
+
 class TestPyIdentKeywords:
     def test_keyword_as_param(self):
         result = py_to_lean("""def f(def_: int, class_: str) -> bool:
@@ -52,6 +54,7 @@ class TestPyIdentKeywords:
 
 # ── Unicode identifiers (PEP 3131) ───────────────────────────────────
 
+
 class TestPyUnicodeIdents:
     def test_greek_params(self):
         result = py_to_lean("""def f(α: int, β: int) -> int:
@@ -68,6 +71,7 @@ class TestPyUnicodeIdents:
 
 # ── Large / pathological parameter lists ──────────────────────────────
 
+
 class TestPyManyParams:
     def test_many_positional(self):
         args = ", ".join(f"p{i}: int" for i in range(50))
@@ -83,6 +87,7 @@ class TestPyManyParams:
 
 
 # ── Deeply nested structures ──────────────────────────────────────────
+
 
 class TestPyDeepNesting:
     def test_deep_nested_ifs(self):
@@ -116,9 +121,10 @@ class TestPyDeepNesting:
 
 # ── Numeric edge-cases ────────────────────────────────────────────────
 
+
 class TestPyNumeric:
     def test_large_int(self):
-        large = 10 ** 50
+        large = 10**50
         source = f"def f() -> int:\n    return {large}\n"
         result = py_to_lean(source)
         assert str(large) in result
@@ -137,6 +143,7 @@ class TestPyNumeric:
 
 
 # ── String edge-cases ─────────────────────────────────────────────────
+
 
 class TestPyString:
     def test_empty_string(self):
@@ -160,6 +167,7 @@ class TestPyString:
 
 # ── Many statements / repetitive bodies ───────────────────────────────
 
+
 class TestPyRepetition:
     def test_many_returns(self):
         source = "def f(x: int) -> int:\n"
@@ -171,6 +179,7 @@ class TestPyRepetition:
 
 
 # ── Zero-argument / degenerate functions ──────────────────────────────
+
 
 class TestPyDegenerate:
     def test_no_params_no_body(self):
@@ -188,6 +197,7 @@ class TestPyDegenerate:
 
 # ── Lean adversary tests ──────────────────────────────────────────────
 
+
 class TestLeanIdentKeywords:
     def test_keyword_as_ident(self):
         with pytest.raises(SyntaxError):
@@ -202,7 +212,13 @@ class TestLeanUnicodeIdents:
 
 class TestLeanDeepNesting:
     def test_deep_app(self):
-        src = "def f (x : Int) : Int := " + "".join(f"g{i} (" for i in range(30)) + "x" + ")" * 30 + "\n"
+        src = (
+            "def f (x : Int) : Int := "
+            + "".join(f"g{i} (" for i in range(30))
+            + "x"
+            + ")" * 30
+            + "\n"
+        )
         result = lean_to_py(src)
         assert result
 
@@ -242,9 +258,12 @@ class TestLeanDegenerate:
 
 # ── Round-trip irregular forms ────────────────────────────────────────
 
+
 class TestRoundTripAdversary:
     def test_deep_nested_rt(self):
-        source = "def f(x: int) -> int:\n    return " + "(" * 30 + "x + 1" + ")" * 30 + "\n"
+        source = (
+            "def f(x: int) -> int:\n    return " + "(" * 30 + "x + 1" + ")" * 30 + "\n"
+        )
         middle = py_to_lean(source)
         result = lean_to_py(middle)
         assert "x + 1" in result or "x+1" in result
@@ -263,6 +282,7 @@ class TestRoundTripAdversary:
 
 
 # ── Property-style tests ──────────────────────────────────────────────
+
 
 class TestPropertySurvival:
     """Ensure the transpiler never crashes on well-formed inputs."""
@@ -307,6 +327,7 @@ class TestPropertySurvival:
 # Python: injection / output-breaking inputs
 # ---------------------------------------------------------------------------
 
+
 class TestPyInjection:
     """Inputs that could break or escape codegen output."""
 
@@ -328,6 +349,7 @@ class TestPyInjection:
 # ---------------------------------------------------------------------------
 # Python: multiple top-level definitions
 # ---------------------------------------------------------------------------
+
 
 class TestPyMultipleDefs:
     """Multiple functions, classes, and mixed top-level definitions."""
@@ -352,6 +374,7 @@ class TestPyMultipleDefs:
 # Python: nested classes / functions
 # ---------------------------------------------------------------------------
 
+
 class TestPyNesting:
     """Nested class and function definitions."""
 
@@ -375,6 +398,7 @@ class TestPyNesting:
 # Python: augmented assignment
 # ---------------------------------------------------------------------------
 
+
 class TestPyAugAssign:
     """Augmented assignment operators (+=, -=, etc.)."""
 
@@ -394,6 +418,7 @@ class TestPyAugAssign:
 # ---------------------------------------------------------------------------
 # Python: chained attributes and subscripts
 # ---------------------------------------------------------------------------
+
 
 class TestPyChainedAccess:
     """Deeply chained attribute and subscript access."""
@@ -418,6 +443,7 @@ class TestPyChainedAccess:
 # Python: generators and yield
 # ---------------------------------------------------------------------------
 
+
 class TestPyYield:
     """Generator functions with yield and yield from."""
 
@@ -441,6 +467,7 @@ class TestPyYield:
 # Python: match with guard combined with OR pattern
 # ---------------------------------------------------------------------------
 
+
 class TestPyMatchGuardOr:
     """Match-case with guards and OR patterns simultaneously."""
 
@@ -463,6 +490,7 @@ class TestPyMatchGuardOr:
 # Lean: empty type declarations
 # ---------------------------------------------------------------------------
 
+
 class TestLeanEmptyTypes:
     """Empty inductive, structure, and class declarations."""
 
@@ -482,6 +510,7 @@ class TestLeanEmptyTypes:
 # ---------------------------------------------------------------------------
 # Lean: nested comments
 # ---------------------------------------------------------------------------
+
 
 class TestLeanNestedComments:
     """Lean block comments (/- ... -/) should be handled."""
@@ -503,6 +532,7 @@ class TestLeanNestedComments:
 # Lean: deep type nesting
 # ---------------------------------------------------------------------------
 
+
 class TestLeanDeepTypes:
     """Deeply nested type annotations."""
 
@@ -518,6 +548,7 @@ class TestLeanDeepTypes:
 # ---------------------------------------------------------------------------
 # Round-trip: type preservation
 # ---------------------------------------------------------------------------
+
 
 class TestRoundTripTypeInfo:
     """Verify type annotations survive round-trips."""
@@ -538,6 +569,7 @@ class TestRoundTripTypeInfo:
 # ---------------------------------------------------------------------------
 # Round-trip: lossy constructs (known information loss)
 # ---------------------------------------------------------------------------
+
 
 class TestRoundTripLossy:
     """Constructs known to lose information during round-trip must still
@@ -567,6 +599,7 @@ class TestRoundTripLossy:
 # Python: edge-case type annotations
 # ---------------------------------------------------------------------------
 
+
 class TestPyTypeAnnotations:
     """Unusual or complex type annotations."""
 
@@ -584,6 +617,7 @@ class TestPyTypeAnnotations:
 # ---------------------------------------------------------------------------
 # Python: star imports and wildcards
 # ---------------------------------------------------------------------------
+
 
 class TestPyImports:
     """Various import forms."""
@@ -608,6 +642,7 @@ class TestPyImports:
 # Injection / escaping in string literals
 # ---------------------------------------------------------------------------
 
+
 class TestStringInjection:
     """Strings with unusual content that could break codegen."""
 
@@ -625,6 +660,7 @@ class TestStringInjection:
 # ---------------------------------------------------------------------------
 # Deep nesting (recursion-limit proximity)
 # ---------------------------------------------------------------------------
+
 
 class TestDeepNestingStress:
     """Near-limits nesting to stress recursion in parse/transpile."""
@@ -667,6 +703,7 @@ class TestDeepNestingStress:
 # Walrus operator (assignment expressions)
 # ---------------------------------------------------------------------------
 
+
 class TestWalrusEdgeCases:
     """Walrus operator (:=) in various positions."""
 
@@ -685,6 +722,7 @@ class TestWalrusEdgeCases:
 # Named arguments (Lean → Python)
 # ---------------------------------------------------------------------------
 
+
 class TestLeanNamedArgs:
     """Named arguments in function calls."""
 
@@ -702,6 +740,7 @@ class TestLeanNamedArgs:
 # ---------------------------------------------------------------------------
 # Unicode / special identifiers
 # ---------------------------------------------------------------------------
+
 
 class TestUnicodeStress:
     """Unicode identifiers and edge cases."""
@@ -724,6 +763,7 @@ class TestUnicodeStress:
 # ---------------------------------------------------------------------------
 # Round-trip stress tests
 # ---------------------------------------------------------------------------
+
 
 class TestRoundTripStress:
     """Full round-trips through the transpiler."""
@@ -751,6 +791,7 @@ class TestRoundTripStress:
 # ---------------------------------------------------------------------------
 # Property survival — extended set
 # ---------------------------------------------------------------------------
+
 
 class TestExtendedSurvival:
     """Extended smoke tests for constructs known to be partially supported."""

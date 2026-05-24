@@ -1,6 +1,6 @@
 from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import Optional
+
+from dataclasses import dataclass
 
 
 @dataclass
@@ -38,8 +38,8 @@ class LeanTactic(LeanNode):
 class LeanDef(LeanCommand):
     name: str
     params: list[LeanParam]
-    return_type: Optional[LeanExpr]
-    value: Optional[LeanExpr]
+    return_type: LeanExpr | None
+    value: LeanExpr | None
     is_theorem: bool = False
     is_lemma: bool = False
     is_mutual: bool = False
@@ -49,8 +49,8 @@ class LeanDef(LeanCommand):
 @dataclass
 class LeanParam(LeanNode):
     name: str
-    type: Optional[LeanExpr]
-    default: Optional[LeanExpr] = None
+    type: LeanExpr | None
+    default: LeanExpr | None = None
     explicit: bool = True
 
 
@@ -130,15 +130,15 @@ class LeanVariable(LeanCommand):
 class LeanLet(LeanExpr):
     name: str
     params: list[LeanParam]
-    type: Optional[LeanExpr]
-    value: Optional[LeanExpr]
+    type: LeanExpr | None
+    value: LeanExpr | None
     body: LeanExpr
     is_mut: bool = False
 
 
 @dataclass
 class LeanHave(LeanExpr):
-    name: Optional[str]
+    name: str | None
     type: LeanExpr
     value: LeanExpr
     body: LeanExpr
@@ -181,7 +181,7 @@ class LeanPi(LeanExpr):
 
 @dataclass
 class LeanSort(LeanExpr):
-    level: Optional[int] = None
+    level: int | None = None
 
 
 @dataclass
@@ -242,7 +242,7 @@ class LeanUnit(LeanExpr):
 @dataclass
 class LeanListLit(LeanExpr):
     elts: list[LeanExpr]
-    type: Optional[LeanExpr] = None
+    type: LeanExpr | None = None
 
 
 @dataclass
@@ -310,7 +310,7 @@ class LeanPatternStruct(LeanPattern):
 class LeanIf(LeanExpr):
     cond: LeanExpr
     then_expr: LeanExpr
-    else_expr: Optional[LeanExpr]
+    else_expr: LeanExpr | None
 
 
 @dataclass
@@ -321,7 +321,7 @@ class LeanTypeSpec(LeanExpr):
 
 @dataclass
 class LeanHaveStmt(LeanCommand):
-    name: Optional[str]
+    name: str | None
     type: LeanExpr
     value: LeanExpr
 
@@ -329,7 +329,7 @@ class LeanHaveStmt(LeanCommand):
 @dataclass
 class LeanDo(LeanExpr):
     stmts: list[LeanDoStmt]
-    last: Optional[LeanExpr]
+    last: LeanExpr | None
 
 
 @dataclass

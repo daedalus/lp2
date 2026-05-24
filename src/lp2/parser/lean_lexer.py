@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import NoReturn
 
@@ -171,27 +172,71 @@ class LeanLexer:
                 break
         return start
 
-    _TRIPLE = {"&&&": "AMPAMPAMP", "|||": "PIPEPIPEPIPE", "<<<": "LTLTLT", ">>>": "GTGTGT"}
-
-    _MULTI = {
-        "->": "RARROW", "=>": "ARROW", "::": "DOUBLECOLON",
-        ":=": "COLONEQ", "++": "PLUSPLUS", "|>": "PIPEOP", "<|": "PIPEOP",
-        "≥": "GE", "≤": "LE", "≠": "NE",
-        "<=": "LE", ">=": "GE", "!=": "NE", "==": "DEQ",
-        "&&": "AMPAMP", "||": "PIPEPIPE", "<<": "LTLT", ">>": "GTGT",
+    _TRIPLE = {
+        "&&&": "AMPAMPAMP",
+        "|||": "PIPEPIPEPIPE",
+        "<<<": "LTLTLT",
+        ">>>": "GTGTGT",
     }
 
-    _UNICODE_SINGLE = {"→": "RARROW", "≤": "LE", "≥": "GE", "≠": "NE", "∀": "FORALL", "λ": "FUN"}
+    _MULTI = {
+        "->": "RARROW",
+        "=>": "ARROW",
+        "::": "DOUBLECOLON",
+        ":=": "COLONEQ",
+        "++": "PLUSPLUS",
+        "|>": "PIPEOP",
+        "<|": "PIPEOP",
+        "≥": "GE",
+        "≤": "LE",
+        "≠": "NE",
+        "<=": "LE",
+        ">=": "GE",
+        "!=": "NE",
+        "==": "DEQ",
+        "&&": "AMPAMP",
+        "||": "PIPEPIPE",
+        "<<": "LTLT",
+        ">>": "GTGT",
+    }
+
+    _UNICODE_SINGLE = {
+        "→": "RARROW",
+        "≤": "LE",
+        "≥": "GE",
+        "≠": "NE",
+        "∀": "FORALL",
+        "λ": "FUN",
+    }
 
     _SINGLE = {
-        ";": "SEMI", "(": "LPAREN", ")": "RPAREN",
-        "[": "LBRACK", "]": "RBRACK", "{": "LBRACE", "}": "RBRACE",
-        ":": "COLON", ",": "COMMA", ".": "DOT",
-        "|": "PIPE", "=": "EQ", "+": "PLUS", "-": "MINUS",
-        "*": "STAR", "/": "SLASH", "%": "PERCENT", "^": "HAT",
-        "<": "LT", ">": "GT", "!": "BANG",
-        "@": "AT", "$": "DOLLAR", "~": "TILDE", "&": "AMP",
-        "?": "QMARK", "#": "HASH",
+        ";": "SEMI",
+        "(": "LPAREN",
+        ")": "RPAREN",
+        "[": "LBRACK",
+        "]": "RBRACK",
+        "{": "LBRACE",
+        "}": "RBRACE",
+        ":": "COLON",
+        ",": "COMMA",
+        ".": "DOT",
+        "|": "PIPE",
+        "=": "EQ",
+        "+": "PLUS",
+        "-": "MINUS",
+        "*": "STAR",
+        "/": "SLASH",
+        "%": "PERCENT",
+        "^": "HAT",
+        "<": "LT",
+        ">": "GT",
+        "!": "BANG",
+        "@": "AT",
+        "$": "DOLLAR",
+        "~": "TILDE",
+        "&": "AMP",
+        "?": "QMARK",
+        "#": "HASH",
     }
 
     def _tokenize(self) -> None:

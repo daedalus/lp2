@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 import sys
 
-from lp2.parser.python_parser import parse_python
-from lp2.parser.lean_parser import LeanParser
-from lp2.codegen.python_codegen import generate_python
 from lp2.codegen.lean4_codegen import generate_lean
-from lp2.transpiler.python_to_lean4 import py_to_lean
+from lp2.codegen.python_codegen import generate_python
+from lp2.parser.lean_parser import LeanParser
+from lp2.parser.python_parser import parse_python
 from lp2.transpiler.lean4_to_python import lean_to_py
+from lp2.transpiler.python_to_lean4 import py_to_lean
 
 
 def convert_str(source: str, direction: str) -> str:

@@ -1,6 +1,6 @@
 from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import Optional
 
 
 @dataclass
@@ -25,14 +25,14 @@ class PyStmt(PyNode):
 
 @dataclass
 class PyReturn(PyStmt):
-    value: Optional[PyExpr]
+    value: PyExpr | None
 
 
 @dataclass
 class PyAssign(PyStmt):
     target: PyNode
     value: PyExpr
-    type_annotation: Optional[PyExpr] = None
+    type_annotation: PyExpr | None = None
 
 
 @dataclass
@@ -46,14 +46,14 @@ class PyAugAssign(PyStmt):
 class PyAnnAssign(PyStmt):
     target: PyExpr
     annotation: PyExpr
-    value: Optional[PyExpr]
+    value: PyExpr | None
 
 
 @dataclass
 class PyFunctionDef(PyStmt):
     name: str
-    args: list[tuple[str, Optional[PyExpr], Optional[PyExpr]]]
-    return_type: Optional[PyExpr]
+    args: list[tuple[str, PyExpr | None, PyExpr | None]]
+    return_type: PyExpr | None
     body: list[PyStmt]
     decorators: list[PyExpr] = field(default_factory=list)
 
@@ -114,7 +114,7 @@ class PyMatch(PyStmt):
 @dataclass
 class PyMatchCase(PyNode):
     pattern: PyExpr
-    guard: Optional[PyExpr]
+    guard: PyExpr | None
     body: list[PyStmt]
 
 
@@ -125,7 +125,7 @@ class PyImport(PyStmt):
 
 @dataclass
 class PyRaise(PyStmt):
-    exc: Optional[PyExpr]
+    exc: PyExpr | None
 
 
 @dataclass
@@ -138,8 +138,8 @@ class PyTry(PyStmt):
 
 @dataclass
 class PyExceptHandler(PyNode):
-    typ: Optional[PyExpr]
-    name: Optional[str]
+    typ: PyExpr | None
+    name: str | None
     body: list[PyStmt]
 
 
@@ -152,7 +152,7 @@ class PyWith(PyStmt):
 @dataclass
 class PyAssert(PyStmt):
     test: PyExpr
-    msg: Optional[PyExpr]
+    msg: PyExpr | None
 
 
 @dataclass
@@ -173,8 +173,8 @@ class PyDelete(PyStmt):
 @dataclass
 class PyAsyncFunctionDef(PyStmt):
     name: str
-    args: list[tuple[str, Optional[PyExpr], Optional[PyExpr]]]
-    return_type: Optional[PyExpr]
+    args: list[tuple[str, PyExpr | None, PyExpr | None]]
+    return_type: PyExpr | None
     body: list[PyStmt]
 
 
@@ -199,7 +199,7 @@ class PyName(PyExpr):
 @dataclass
 class PyConstant(PyExpr):
     value: object
-    kind: Optional[str] = None
+    kind: str | None = None
 
 
 @dataclass
@@ -256,9 +256,9 @@ class PySubscript(PyExpr):
 
 @dataclass
 class PySlice(PyExpr):
-    lower: Optional[PyExpr]
-    upper: Optional[PyExpr]
-    step: Optional[PyExpr]
+    lower: PyExpr | None
+    upper: PyExpr | None
+    step: PyExpr | None
 
 
 @dataclass
@@ -278,13 +278,13 @@ class PySet(PyExpr):
 
 @dataclass
 class PyDict(PyExpr):
-    keys: list[Optional[PyExpr]]
+    keys: list[PyExpr | None]
     values: list[PyExpr]
 
 
 @dataclass
 class PyLambda(PyExpr):
-    args: list[tuple[str, Optional[PyExpr]]]
+    args: list[tuple[str, PyExpr | None]]
     body: PyExpr
 
 
@@ -327,7 +327,7 @@ class PyAwait(PyExpr):
 
 @dataclass
 class PyYield(PyExpr):
-    value: Optional[PyExpr]
+    value: PyExpr | None
 
 
 @dataclass

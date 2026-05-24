@@ -1,5 +1,4 @@
-import pytest
-from hypothesis import settings, Verbosity
+from hypothesis import Verbosity, settings
 
 settings.register_profile("ci", max_examples=100, verbosity=Verbosity.normal)
 settings.register_profile("dev", max_examples=10, verbosity=Verbosity.verbose)

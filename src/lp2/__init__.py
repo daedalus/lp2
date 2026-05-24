@@ -6,7 +6,7 @@ __all__ = [
     "convert_file",
 ]
 
-from lp2.cli import convert_str, convert_file
+from lp2.cli import convert_file, convert_str
 
 
 def py_to_lean(source: str) -> str:
@@ -21,9 +21,9 @@ def py_to_lean(source: str) -> str:
     Raises:
         SyntaxError: If the Python source is invalid.
     """
+    from lp2.codegen.lean4_codegen import generate_lean
     from lp2.parser.python_parser import parse_python
     from lp2.transpiler.python_to_lean4 import py_to_lean as _transform
-    from lp2.codegen.lean4_codegen import generate_lean
 
     py_ast = parse_python(source)
     lean_ast = _transform(py_ast)
@@ -42,9 +42,9 @@ def lean_to_py(source: str) -> str:
     Raises:
         SyntaxError: If the Lean source is invalid.
     """
+    from lp2.codegen.python_codegen import generate_python
     from lp2.parser.lean_parser import LeanParser
     from lp2.transpiler.lean4_to_python import lean_to_py as _transform
-    from lp2.codegen.python_codegen import generate_python
 
     parser = LeanParser(source)
     lean_ast = parser.parse_module()

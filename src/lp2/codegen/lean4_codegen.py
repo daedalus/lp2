@@ -67,9 +67,7 @@ def _gen_cmd_Namespace(node: LeanNamespace, indent: int) -> str:
 
 def _gen_cmd_Section(node: LeanSection, indent: int) -> str:
     body = "\n".join(_gen_command(c, indent + 1) for c in node.commands)
-    params = (
-        (" " + " ".join(_gen_param(p) for p in node.params)) if node.params else ""
-    )
+    params = (" " + " ".join(_gen_param(p) for p in node.params)) if node.params else ""
     return f"section{params}\n{body}\nend"
 
 
@@ -171,17 +169,15 @@ def _gen_param(p: LeanParam) -> str:
 def _needs_parens(n: LeanExpr) -> bool:
     return isinstance(
         n,
-        (
-            LeanApp,
-            LeanBinOp,
-            LeanUnaryOp,
-            LeanLambda,
-            LeanIf,
-            LeanMatch,
-            LeanLet,
-            LeanTypeArrow,
-            LeanTypeSpec,
-        ),
+        LeanApp
+        | LeanBinOp
+        | LeanUnaryOp
+        | LeanLambda
+        | LeanIf
+        | LeanMatch
+        | LeanLet
+        | LeanTypeArrow
+        | LeanTypeSpec,
     )
 
 
@@ -242,9 +238,17 @@ def _gen_expr_App(node: LeanExpr, parent_prec: int = 0) -> str:
 _BINOP_PREC: dict[str, int] = {
     "||": 1,
     "&&": 2,
-    "==": 3, "!=": 3, "<": 3, ">": 3, "<=": 3, ">=": 3,
-    "+": 5, "-": 5,
-    "*": 6, "/": 6, "%": 6,
+    "==": 3,
+    "!=": 3,
+    "<": 3,
+    ">": 3,
+    "<=": 3,
+    ">=": 3,
+    "+": 5,
+    "-": 5,
+    "*": 6,
+    "/": 6,
+    "%": 6,
     "^": 7,
 }
 
@@ -290,8 +294,7 @@ def _gen_expr_Lambda(node: LeanExpr, parent_prec: int = 0) -> str:
 
 def _gen_expr_Forall(node: LeanExpr, parent_prec: int = 0) -> str:
     params = " ".join(
-        f"({p.name} : {_gen_expr(p.type)})" if p.type else p.name
-        for p in node.params
+        f"({p.name} : {_gen_expr(p.type)})" if p.type else p.name for p in node.params
     )
     return f"∀ {params}, {_gen_expr(node.body)}"
 
@@ -324,8 +327,7 @@ def _gen_expr_Proj(node: LeanExpr, parent_prec: int = 0) -> str:
 
 def _gen_expr_Match(node: LeanExpr, parent_prec: int = 0) -> str:
     arms = "\n    ".join(
-        f"| {_gen_pattern(arm.pattern)} => {_gen_expr(arm.rhs)}"
-        for arm in node.arms
+        f"| {_gen_pattern(arm.pattern)} => {_gen_expr(arm.rhs)}" for arm in node.arms
     )
     return f"match {_gen_expr(node.expr)} with\n    {arms}"
 

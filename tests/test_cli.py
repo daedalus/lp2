@@ -1,7 +1,8 @@
 """Tests for CLI interface."""
 
 import pytest
-from lp2.cli import convert_str, convert_file, main
+
+from lp2.cli import convert_file, convert_str, main
 
 
 class TestConvertStr:
@@ -55,6 +56,7 @@ class TestCliMain:
 
     def test_py2lean_with_file(self, tmp_path):
         import sys
+
         p = tmp_path / "test.py"
         p.write_text("def f(x: int) -> int:\n    return x + 1\n")
         old_argv = sys.argv
@@ -67,16 +69,20 @@ class TestCliMain:
     def test_py2lean_stdin(self):
         import sys
         from unittest.mock import patch
+
         old_argv = sys.argv
         sys.argv = ["lp2", "py2lean", "--stdin"]
         try:
-            with patch("sys.stdin.read", return_value="def f() -> int:\n    return 1\n"):
+            with patch(
+                "sys.stdin.read", return_value="def f() -> int:\n    return 1\n"
+            ):
                 assert main() == 0
         finally:
             sys.argv = old_argv
 
     def test_py2lean_no_arg(self):
         import sys
+
         old_argv = sys.argv
         sys.argv = ["lp2", "py2lean"]
         try:
@@ -86,6 +92,7 @@ class TestCliMain:
 
     def test_py2lean_parse_error(self, tmp_path):
         import sys
+
         p = tmp_path / "bad.py"
         p.write_text("def f(:\n")
         old_argv = sys.argv
@@ -97,6 +104,7 @@ class TestCliMain:
 
     def test_lean2py_with_file(self, tmp_path):
         import sys
+
         p = tmp_path / "test.lean"
         p.write_text("def f (x : Int) : Int := x + 1\n")
         old_argv = sys.argv
@@ -109,6 +117,7 @@ class TestCliMain:
     def test_lean2py_stdin(self):
         import sys
         from unittest.mock import patch
+
         old_argv = sys.argv
         sys.argv = ["lp2", "lean2py", "--stdin"]
         try:
@@ -119,6 +128,7 @@ class TestCliMain:
 
     def test_lean2py_no_arg(self):
         import sys
+
         old_argv = sys.argv
         sys.argv = ["lp2", "lean2py"]
         try:
@@ -128,6 +138,7 @@ class TestCliMain:
 
     def test_lean2py_parse_error(self, tmp_path):
         import sys
+
         p = tmp_path / "bad.lean"
         p.write_text("def f : ,\n")
         old_argv = sys.argv
@@ -139,6 +150,7 @@ class TestCliMain:
 
     def test_unknown_command(self):
         import sys
+
         old_argv = sys.argv
         sys.argv = ["lp2", "bogus"]
         try:

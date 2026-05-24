@@ -1,8 +1,7 @@
 from __future__ import annotations
-from typing import Optional
+
 from lp2.ast.lean4_ast import *
 from lp2.parser.lean_lexer import LeanLexer, Token
-
 
 PRECEDENCE = {
     "RARROW": 1,
@@ -77,7 +76,7 @@ class LeanParser:
         self.pos += 1
         return t
 
-    def _expect(self, kind: str, value: Optional[str] = None) -> Token:
+    def _expect(self, kind: str, value: str | None = None) -> Token:
         t = self._peek()
         if t.kind != kind or (value is not None and t.value != value):
             raise SyntaxError(
@@ -85,7 +84,7 @@ class LeanParser:
             )
         return self._advance()
 
-    def _maybe(self, kind: str, value: Optional[str] = None) -> bool:
+    def _maybe(self, kind: str, value: str | None = None) -> bool:
         t = self._peek()
         if t.kind == kind and (value is None or t.value == value):
             self._advance()
@@ -129,12 +128,26 @@ class LeanParser:
                 try:
                     body.append(self._parse_def())
                 except SyntaxError:
-                    self._skip_to({
-                        "EOF", "DEF", "THEOREM", "LEMMA", "INDUCTIVE",
-                        "STRUCTURE", "CLASS", "INSTANCE", "AXIOM",
-                        "EXAMPLE", "NAMESPACE", "SECTION", "OPEN",
-                        "VARIABLE", "HASH_EVAL", "HASH_CHECK",
-                    })
+                    self._skip_to(
+                        {
+                            "EOF",
+                            "DEF",
+                            "THEOREM",
+                            "LEMMA",
+                            "INDUCTIVE",
+                            "STRUCTURE",
+                            "CLASS",
+                            "INSTANCE",
+                            "AXIOM",
+                            "EXAMPLE",
+                            "NAMESPACE",
+                            "SECTION",
+                            "OPEN",
+                            "VARIABLE",
+                            "HASH_EVAL",
+                            "HASH_CHECK",
+                        }
+                    )
         return LeanModule(imports=imports, body=body)
 
     def _parse_def(self) -> LeanDef:
@@ -392,10 +405,20 @@ class LeanParser:
 
     # ---- Expression Parsing (Pratt-style) ----
 
-    _TOK_IS_ATOM = frozenset({
-        "ID", "NUM", "STR", "BOOL", "FLOAT", "CHAR",
-        "LPAREN", "LBRACK", "LBRACE", "WILD",
-    })
+    _TOK_IS_ATOM = frozenset(
+        {
+            "ID",
+            "NUM",
+            "STR",
+            "BOOL",
+            "FLOAT",
+            "CHAR",
+            "LPAREN",
+            "LBRACK",
+            "LBRACE",
+            "WILD",
+        }
+    )
 
     def _handle_binop(self, lhs: LeanExpr, prec: int, op: str) -> LeanExpr:
         rhs = self._parse_expr(prec)
@@ -551,7 +574,7 @@ class LeanParser:
         "HASH_CHECK": "_phash",
     }
 
-    def _parse_prefix(self) -> Optional[LeanExpr]:
+    def _parse_prefix(self) -> LeanExpr | None:
         handler = self._PREFIX_DISPATCH.get(self._peek().kind)
         if handler is not None:
             return getattr(self, handler)()
