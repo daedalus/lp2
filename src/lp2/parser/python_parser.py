@@ -48,6 +48,21 @@ _CMPOP_MAP = {
     py_ast.NotIn: "not in",
 }
 
+_AUGOP_MAP = {
+    py_ast.Add: "+",
+    py_ast.Sub: "-",
+    py_ast.Mult: "*",
+    py_ast.Div: "/",
+    py_ast.FloorDiv: "//",
+    py_ast.Mod: "%",
+    py_ast.Pow: "**",
+    py_ast.LShift: "<<",
+    py_ast.RShift: ">>",
+    py_ast.BitOr: "|",
+    py_ast.BitXor: "^",
+    py_ast.BitAnd: "&",
+}
+
 _BOOLOP_MAP = {
     py_ast.And: "and",
     py_ast.Or: "or",
@@ -100,6 +115,11 @@ def _handle_Assign(node: py_ast.stmt) -> PyStmt:
         target=PyTuple(elts=[_convert_expr(t) for t in targets]),
         value=_convert_expr(n.value),
     )
+
+def _handle_AugAssign(node: py_ast.stmt) -> PyStmt:
+    n = node  # type: ignore[attr-defined]
+    op = _AUGOP_MAP.get(type(n.op), str(type(n.op).__name__))
+    return PyAugAssign(target=_convert_expr(n.target), op=op, value=_convert_expr(n.value))
 
 def _handle_AnnAssign(node: py_ast.stmt) -> PyStmt:
     n = node  # type: ignore[attr-defined]
@@ -222,6 +242,7 @@ _STMT_HANDLERS: dict[type, object] = {
     py_ast.ClassDef: _handle_ClassDef,
     py_ast.Return: _handle_Return,
     py_ast.Assign: _handle_Assign,
+    py_ast.AugAssign: _handle_AugAssign,
     py_ast.AnnAssign: _handle_AnnAssign,
     py_ast.If: _handle_If,
     py_ast.For: _handle_For,

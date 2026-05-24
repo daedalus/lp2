@@ -36,6 +36,13 @@ class PyAssign(PyStmt):
 
 
 @dataclass
+class PyAugAssign(PyStmt):
+    target: PyExpr
+    op: str
+    value: PyExpr
+
+
+@dataclass
 class PyAnnAssign(PyStmt):
     target: PyExpr
     annotation: PyExpr

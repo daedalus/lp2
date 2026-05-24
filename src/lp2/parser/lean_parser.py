@@ -7,6 +7,12 @@ from lp2.parser.lean_lexer import LeanLexer, Token
 PRECEDENCE = {
     "RARROW": 1,
     "COLON": 2,
+    "PIPEPIPE": 2,
+    "PIPEPIPEPIPE": 2,
+    "PIPE": 2,
+    "AMPAMP": 3,
+    "AMPAMPAMP": 3,
+    "AMP": 3,
     "PIPEOP": 3,
     "EQ": 4,
     "DEQ": 4,
@@ -15,9 +21,9 @@ PRECEDENCE = {
     "LE": 4,
     "GE": 4,
     "NE": 4,
-    "AMP": 5,
-    "PIPE": 6,
     "DOUBLECOLON": 7,
+    "LTLT": 7,
+    "GTGT": 7,
     "PLUS": 8,
     "MINUS": 8,
     "STAR": 9,
@@ -44,7 +50,13 @@ BINARY_OPS = {
     "DOUBLECOLON": "::",
     "PLUSPLUS": "++",
     "AMP": "&&",
+    "AMPAMP": "&&",
+    "AMPAMPAMP": "&&&",
     "PIPE": "||",
+    "PIPEPIPE": "||",
+    "PIPEPIPEPIPE": "|||",
+    "LTLT": "<<",
+    "GTGT": ">>",
     "HAT": "^",
     "RARROW": "→",
     "PIPEOP": "|>",
@@ -452,6 +464,13 @@ class LeanParser:
             if self._maybe("RPAREN"):
                 return LeanTypeSpec(expr=LeanHole(), type=typ)
             self._expect("RPAREN")
+        # Named argument: (name := expr)
+        if self._peek().kind == "ID" and self._peek(1).kind == "COLONEQ":
+            name = self._advance().value
+            self._advance()  # consume COLONEQ
+            value = self._parse_expr()
+            self._expect("RPAREN")
+            return LeanNamedArg(name=name, value=value)
         expr = self._parse_expr()
         while self._maybe("COMMA"):
             elts = [expr]
@@ -652,7 +671,10 @@ class LeanParser:
     def _parse_let(self) -> LeanLet:
         self._expect("LET")
         is_mut = self._maybe("MUT")
-        name = self._expect("ID").value
+        if self._peek().kind == "WILD":
+            name = self._advance().value
+        else:
+            name = self._expect("ID").value
         params = []
         while self._peek().kind in ("LPAREN", "LBRACE", "LBRACK"):
             params.extend(self._parse_binders())

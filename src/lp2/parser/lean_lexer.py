@@ -243,6 +243,14 @@ class LeanLexer:
                     self.tokens.append(Token("ID", word, ident_start, line, col))
                 continue
 
+            tri = self.source[self.pos : self.pos + 3]
+            if tri in ("&&&", "|||", "<<<", ">>>"):
+                self.pos += 3
+                kind_map = {"&&&": "AMPAMPAMP", "|||": "PIPEPIPEPIPE", "<<<": "LTLTLT", ">>>": "GTGTGT"}
+                self.tokens.append(Token(kind_map[tri], tri, pos, line, col))
+                self.col += 3
+                continue
+
             multi = {
                 "->": "RARROW",
                 "=>": "ARROW",
@@ -258,6 +266,10 @@ class LeanLexer:
                 ">=": "GE",
                 "!=": "NE",
                 "==": "DEQ",
+                "&&": "AMPAMP",
+                "||": "PIPEPIPE",
+                "<<": "LTLT",
+                ">>": "GTGT",
             }
             two = self.source[self.pos : self.pos + 2]
             if two in multi:

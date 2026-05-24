@@ -178,6 +178,10 @@ def _cmd_assign(node) -> Optional[LeanCommand]:
     return _assign_to_lean(node)
 
 
+def _cmd_aug_assign(node) -> Optional[LeanCommand]:
+    return None
+
+
 def _cmd_import(node: PyImport) -> Optional[LeanCommand]:
     return LeanOpen(names=[n.split(".")[-1] for n in node.names])
 
@@ -201,6 +205,7 @@ _STMT_TO_CMD = {
     PyClassDef: _cmd_class_def,
     PyAssign: _cmd_assign,
     PyAnnAssign: _cmd_assign,
+    PyAugAssign: _cmd_aug_assign,
     PyImport: _cmd_import,
     PyExprStmt: _cmd_expr_stmt,
 }
@@ -228,6 +233,20 @@ def _fold_assign_like(s, result: LeanExpr) -> LeanExpr:
     )
 
 
+def _fold_aug_assign(s: PyAugAssign, result: LeanExpr) -> LeanExpr:
+    target = _assign_target_name(s.target)
+    target_expr = _expr_to_lean(s.target)
+    value = _expr_to_lean(s.value)
+    binop = LeanBinOp(left=target_expr, op=s.op, right=value)
+    return LeanLet(
+        name=_escape_name(target),
+        params=[],
+        type=None,
+        value=binop,
+        body=result,
+    )
+
+
 def _fold_if(s: PyIf, result: LeanExpr) -> LeanExpr:
     test = _expr_to_lean(s.test)
     then_body = _stmts_to_lean_expr(s.body) if s.body else LeanUnit()
@@ -241,6 +260,7 @@ def _fold_if(s: PyIf, result: LeanExpr) -> LeanExpr:
 _STMT_FOLD = {
     PyAnnAssign: _fold_assign_like,
     PyAssign: _fold_assign_like,
+    PyAugAssign: _fold_aug_assign,
     PyIf: _fold_if,
 }
 
@@ -314,6 +334,12 @@ def _expr_assign(node) -> LeanExpr:
     return value
 
 
+def _expr_aug_assign(node: PyAugAssign) -> LeanExpr:
+    target_expr = _expr_to_lean(node.target)
+    value = _expr_to_lean(node.value)
+    return LeanBinOp(left=target_expr, op=node.op, right=value)
+
+
 _STMT_TO_EXPR = {
     PyReturn: _expr_return,
     PyExprStmt: _expr_stmt_expr,
@@ -322,6 +348,7 @@ _STMT_TO_EXPR = {
     PyMatch: _expr_match_stmt,
     PyAssign: _expr_assign,
     PyAnnAssign: _expr_assign,
+    PyAugAssign: _expr_aug_assign,
 }
 
 

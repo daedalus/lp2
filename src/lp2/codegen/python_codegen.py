@@ -66,6 +66,10 @@ def _gen_stmt_Assign(node: PyAssign, indent: int) -> str:
     return f"{i}{_gen_expr(node.target)} = {_gen_expr(node.value)}"
 
 
+def _gen_stmt_AugAssign(node: PyAugAssign, indent: int) -> str:
+    i = "    " * indent
+    return f"{i}{_gen_expr(node.target)} {node.op}= {_gen_expr(node.value)}"
+
 def _gen_stmt_AnnAssign(node: PyAnnAssign, indent: int) -> str:
     i = "    " * indent
     if node.value:
@@ -225,6 +229,7 @@ _STMT_GEN = {
     PyClassDef: _gen_stmt_ClassDef,
     PyReturn: _gen_stmt_Return,
     PyAssign: _gen_stmt_Assign,
+    PyAugAssign: _gen_stmt_AugAssign,
     PyAnnAssign: _gen_stmt_AnnAssign,
     PyIf: _gen_stmt_If,
     PyFor: _gen_stmt_For,

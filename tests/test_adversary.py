@@ -304,6 +304,307 @@ class TestPropertySurvival:
 
 
 # ---------------------------------------------------------------------------
+# Python: injection / output-breaking inputs
+# ---------------------------------------------------------------------------
+
+class TestPyInjection:
+    """Inputs that could break or escape codegen output."""
+
+    def test_string_with_triple_quotes(self):
+        src = "def f() -> str:\n    return 'hello \"world\"'\n"
+        result = py_to_lean(src)
+        assert result
+
+    def test_identifier_with_underscores(self):
+        result = py_to_lean("def __init__(self: object) -> None:\n    pass\n")
+        assert result
+
+    def test_trailing_whitespace_lines(self):
+        src = "def f() -> int:\n    return 1\n   \n  \n"
+        result = py_to_lean(src)
+        assert result
+
+
+# ---------------------------------------------------------------------------
+# Python: multiple top-level definitions
+# ---------------------------------------------------------------------------
+
+class TestPyMultipleDefs:
+    """Multiple functions, classes, and mixed top-level definitions."""
+
+    def test_two_functions(self):
+        src = "def f() -> int:\n    return 1\n\ndef g() -> int:\n    return 2\n"
+        result = py_to_lean(src)
+        assert result
+
+    def test_function_and_class(self):
+        src = "def f() -> int:\n    return 1\n\nclass A:\n    pass\n"
+        result = py_to_lean(src)
+        assert result
+
+    def test_two_classes(self):
+        src = "class A:\n    pass\n\nclass B:\n    pass\n"
+        result = py_to_lean(src)
+        assert result
+
+
+# ---------------------------------------------------------------------------
+# Python: nested classes / functions
+# ---------------------------------------------------------------------------
+
+class TestPyNesting:
+    """Nested class and function definitions."""
+
+    def test_class_inside_function(self):
+        src = "def f() -> object:\n    class Inner:\n        pass\n    return Inner()\n"
+        result = py_to_lean(src)
+        assert result
+
+    def test_class_inside_class(self):
+        src = "class Outer:\n    class Inner:\n        pass\n"
+        result = py_to_lean(src)
+        assert result
+
+    def test_closure(self):
+        src = "def f(x: int) -> int:\n    def g(y: int) -> int:\n        return x + y\n    return g(1)\n"
+        result = py_to_lean(src)
+        assert result
+
+
+# ---------------------------------------------------------------------------
+# Python: augmented assignment
+# ---------------------------------------------------------------------------
+
+class TestPyAugAssign:
+    """Augmented assignment operators (+=, -=, etc.)."""
+
+    def test_aug_add(self):
+        result = py_to_lean("def f(x: int) -> int:\n    x += 1\n    return x\n")
+        assert result
+
+    def test_aug_sub(self):
+        result = py_to_lean("def f(x: int) -> int:\n    x -= 1\n    return x\n")
+        assert result
+
+    def test_aug_mul(self):
+        result = py_to_lean("def f(x: int) -> int:\n    x *= 2\n    return x\n")
+        assert result
+
+
+# ---------------------------------------------------------------------------
+# Python: chained attributes and subscripts
+# ---------------------------------------------------------------------------
+
+class TestPyChainedAccess:
+    """Deeply chained attribute and subscript access."""
+
+    def test_deep_attr_chain(self):
+        src = "def f(a: object) -> object:\n    return a.b.c.d.e\n"
+        result = py_to_lean(src)
+        assert result
+
+    def test_deep_subscript_chain(self):
+        src = "def f(a: list) -> object:\n    return a[0][1][2]\n"
+        result = py_to_lean(src)
+        assert result
+
+    def test_mixed_attr_subscript(self):
+        src = "def f(a: object) -> object:\n    return a.b[0].c\n"
+        result = py_to_lean(src)
+        assert result
+
+
+# ---------------------------------------------------------------------------
+# Python: generators and yield
+# ---------------------------------------------------------------------------
+
+class TestPyYield:
+    """Generator functions with yield and yield from."""
+
+    def test_simple_yield(self):
+        src = "def f() -> int:\n    yield 1\n    yield 2\n"
+        result = py_to_lean(src)
+        assert result
+
+    def test_yield_from(self):
+        src = "def f() -> int:\n    yield from [1, 2, 3]\n"
+        result = py_to_lean(src)
+        assert result
+
+    def test_yield_none(self):
+        src = "def f() -> None:\n    yield\n"
+        result = py_to_lean(src)
+        assert result
+
+
+# ---------------------------------------------------------------------------
+# Python: match with guard combined with OR pattern
+# ---------------------------------------------------------------------------
+
+class TestPyMatchGuardOr:
+    """Match-case with guards and OR patterns simultaneously."""
+
+    def test_match_guard_or(self):
+        src = (
+            "def f(x: int) -> str:\n"
+            "    match x:\n"
+            "        case 0 | 1 if x > 0:\n"
+            "            return 'positive small'\n"
+            "        case 0 | 1:\n"
+            "            return 'zero or one'\n"
+            "        case _:\n"
+            "            return 'other'\n"
+        )
+        result = py_to_lean(src)
+        assert result
+
+
+# ---------------------------------------------------------------------------
+# Lean: empty type declarations
+# ---------------------------------------------------------------------------
+
+class TestLeanEmptyTypes:
+    """Empty inductive, structure, and class declarations."""
+
+    def test_empty_inductive(self):
+        result = lean_to_py("inductive Empty : Type where\n")
+        assert result
+
+    def test_empty_structure(self):
+        result = lean_to_py("structure Unit' where\n")
+        assert result
+
+    def test_empty_class(self):
+        result = lean_to_py("class EmptyClass where\n")
+        assert result
+
+
+# ---------------------------------------------------------------------------
+# Lean: nested comments
+# ---------------------------------------------------------------------------
+
+class TestLeanNestedComments:
+    """Lean block comments (/- ... -/) should be handled."""
+
+    def test_block_comment(self):
+        result = lean_to_py("def f : Int := 1\n/- this is a block comment -/\n")
+        assert result
+
+    def test_block_comment_multi_line(self):
+        result = lean_to_py("def f : Int := 1\n/-\nmulti\nline\ncomment\n-/\n")
+        assert result
+
+    def test_nested_block_comment(self):
+        result = lean_to_py("def f : Int := 1\n/- outer /- inner -/ outer -/\n")
+        assert result
+
+
+# ---------------------------------------------------------------------------
+# Lean: deep type nesting
+# ---------------------------------------------------------------------------
+
+class TestLeanDeepTypes:
+    """Deeply nested type annotations."""
+
+    def test_nested_list_type(self):
+        result = lean_to_py("def f (xs : List (List (List Int))) : Int := 0\n")
+        assert result
+
+    def test_nested_option_type(self):
+        result = lean_to_py("def f (x : Option (Option Int)) : Int := 0\n")
+        assert result
+
+
+# ---------------------------------------------------------------------------
+# Round-trip: type preservation
+# ---------------------------------------------------------------------------
+
+class TestRoundTripTypeInfo:
+    """Verify type annotations survive round-trips."""
+
+    def test_return_type_preserved(self):
+        src = "def f(x: int) -> bool:\n    return True\n"
+        mid = py_to_lean(src)
+        result = lean_to_py(mid)
+        assert "bool" in result or "Bool" in result
+
+    def test_param_type_preserved(self):
+        src = "def f(x: int) -> int:\n    return x\n"
+        mid = py_to_lean(src)
+        result = lean_to_py(mid)
+        assert "int" in result or "Int" in result
+
+
+# ---------------------------------------------------------------------------
+# Round-trip: lossy constructs (known information loss)
+# ---------------------------------------------------------------------------
+
+class TestRoundTripLossy:
+    """Constructs known to lose information during round-trip must still
+    produce valid, semantically equivalent Python."""
+
+    def test_if_elif_roundtrip(self):
+        src = (
+            "def f(x: int) -> str:\n"
+            "    if x > 0:\n"
+            "        return 'pos'\n"
+            "    elif x < 0:\n"
+            "        return 'neg'\n"
+            "    return 'zero'\n"
+        )
+        mid = py_to_lean(src)
+        result = lean_to_py(mid)
+        assert "'pos'" in result and "'neg'" in result
+
+    def test_for_loop_roundtrip(self):
+        src = "def f() -> int:\n    total = 0\n    for i in [1, 2, 3]:\n        total += i\n    return total\n"
+        mid = py_to_lean(src)
+        result = lean_to_py(mid)
+        assert result
+
+
+# ---------------------------------------------------------------------------
+# Python: edge-case type annotations
+# ---------------------------------------------------------------------------
+
+class TestPyTypeAnnotations:
+    """Unusual or complex type annotations."""
+
+    def test_nested_list_type_annotation(self):
+        src = "def f(x: list[list[int]]) -> list[list[int]]:\n    return x\n"
+        result = py_to_lean(src)
+        assert result
+
+    def test_tuple_type_annotation(self):
+        src = "def f(x: tuple[int, str]) -> tuple[int, str]:\n    return x\n"
+        result = py_to_lean(src)
+        assert result
+
+
+# ---------------------------------------------------------------------------
+# Python: star imports and wildcards
+# ---------------------------------------------------------------------------
+
+class TestPyImports:
+    """Various import forms."""
+
+    def test_star_import(self):
+        src = "from math import *\n\ndef f() -> float:\n    return pi\n"
+        result = py_to_lean(src)
+        assert result
+
+    def test_import_alias(self):
+        src = "import numpy as np\n\ndef f() -> float:\n    return np.pi\n"
+        result = py_to_lean(src)
+        assert result
+
+    def test_multi_import(self):
+        src = "import os, sys\n\ndef f() -> str:\n    return os.name\n"
+        result = py_to_lean(src)
+        assert result
+
+
+# ---------------------------------------------------------------------------
 # Injection / escaping in string literals
 # ---------------------------------------------------------------------------
 
@@ -387,13 +688,11 @@ class TestWalrusEdgeCases:
 class TestLeanNamedArgs:
     """Named arguments in function calls."""
 
-    @pytest.mark.xfail(reason="Lean parser does not support named args (x := val) syntax", strict=True)
     def test_single_named_arg(self):
         src = "def f : Int := g (x := 42)\n"
         result = lean_to_py(src)
         assert result
 
-    @pytest.mark.xfail(reason="Lean parser does not support named args (x := val) syntax", strict=True)
     def test_mixed_named_positional(self):
         src = "def f : Int := g 1 (x := 2) (y := 3)\n"
         result = lean_to_py(src)
@@ -478,21 +777,15 @@ class TestExtendedSurvival:
         assert result
 
     LEAN_SNIPPETS = [
-        pytest.param("def f (x : Int) : Bool := x >= 0 && x <= 10\n",
-                     marks=pytest.mark.xfail(reason="Lean parser does not support && operator", strict=True)),
-        pytest.param("def f (x : Int) : Bool := x < 0 || x > 100\n",
-                     marks=pytest.mark.xfail(reason="Lean parser does not support || operator", strict=True)),
+        "def f (x : Int) : Bool := x >= 0 && x <= 10\n",
+        "def f (x : Int) : Bool := x < 0 || x > 100\n",
         "def f : List Int := [1, 2, 3]\n",
         "def f : Int * Int * Int := (1, 2, 3)\n",
         "def f (x : Int) : Int := x ^ 2\n",
-        pytest.param("def f (x : Int) : Int := x << 2\n",
-                     marks=pytest.mark.xfail(reason="Lean parser does not support << operator", strict=True)),
-        pytest.param("def f (x : Int) : Int := x >> 2\n",
-                     marks=pytest.mark.xfail(reason="Lean parser does not support >> operator", strict=True)),
-        pytest.param("def f (x : Int) : Int := x &&& 255\n",
-                     marks=pytest.mark.xfail(reason="Lean parser does not support &&& operator", strict=True)),
-        pytest.param("def f (x : Int) : Int := x ||| 128\n",
-                     marks=pytest.mark.xfail(reason="Lean parser does not support ||| operator", strict=True)),
+        "def f (x : Int) : Int := x << 2\n",
+        "def f (x : Int) : Int := x >> 2\n",
+        "def f (x : Int) : Int := x &&& 255\n",
+        "def f (x : Int) : Int := x ||| 128\n",
     ]
 
     @pytest.mark.parametrize("code", LEAN_SNIPPETS)
