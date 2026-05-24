@@ -171,160 +171,146 @@ class LeanLexer:
                 break
         return start
 
+    _TRIPLE = {"&&&": "AMPAMPAMP", "|||": "PIPEPIPEPIPE", "<<<": "LTLTLT", ">>>": "GTGTGT"}
+
+    _MULTI = {
+        "->": "RARROW", "=>": "ARROW", "::": "DOUBLECOLON",
+        ":=": "COLONEQ", "++": "PLUSPLUS", "|>": "PIPEOP", "<|": "PIPEOP",
+        "≥": "GE", "≤": "LE", "≠": "NE",
+        "<=": "LE", ">=": "GE", "!=": "NE", "==": "DEQ",
+        "&&": "AMPAMP", "||": "PIPEPIPE", "<<": "LTLT", ">>": "GTGT",
+    }
+
+    _UNICODE_SINGLE = {"→": "RARROW", "≤": "LE", "≥": "GE", "≠": "NE", "∀": "FORALL", "λ": "FUN"}
+
+    _SINGLE = {
+        ";": "SEMI", "(": "LPAREN", ")": "RPAREN",
+        "[": "LBRACK", "]": "RBRACK", "{": "LBRACE", "}": "RBRACE",
+        ":": "COLON", ",": "COMMA", ".": "DOT",
+        "|": "PIPE", "=": "EQ", "+": "PLUS", "-": "MINUS",
+        "*": "STAR", "/": "SLASH", "%": "PERCENT", "^": "HAT",
+        "<": "LT", ">": "GT", "!": "BANG",
+        "@": "AT", "$": "DOLLAR", "~": "TILDE", "&": "AMP",
+        "?": "QMARK", "#": "HASH",
+    }
+
     def _tokenize(self) -> None:
         while self.pos < len(self.source):
-            ch = self._peek()
-            if ch is None:
-                break
-            if ch in " \t\n\r":
-                self._skip_ws()
-                continue
-            if ch == "-" and self._peek(1) == "-":
-                self._skip_comment()
-                continue
-            if ch == "/" and self._peek(1) == "-":
-                self._skip_comment()
-                continue
-
-            line, col = self.line, self.col
-            pos = self.pos
-
-            if ch == '"':
-                self._advance()
-                val = self._read_string('"')
-                self.tokens.append(Token("STR", val, pos, line, col))
-                continue
-
-            if ch == "'":
-                self._advance()
-                if self._peek() == "\\":
-                    self._advance()
-                    c = self._advance()
-                else:
-                    c = self._advance()
-                if self._advance() != "'":
-                    self._error("Expected closing single quote")
-                self.tokens.append(Token("CHAR", c, pos, line, col))
-                continue
-
-            if ch.isdigit():
-                start = self._read_number()
-                raw = self.source[start : self.pos]
-                if "." in raw or "e" in raw.lower():
-                    self.tokens.append(Token("FLOAT", raw, start, line, col))
-                else:
-                    self.tokens.append(Token("NUM", raw, start, line, col))
-                continue
-
-            if ch.isalpha() or ch in "_λ∀":
-                ident_start = self.pos
-                while self.pos < len(self.source):
-                    c = self._peek()
-                    if c is None:
-                        break
-                    if c.isalnum() or c in "_'λ∀":
-                        self._advance()
-                    else:
-                        break
-                word = self.source[ident_start : self.pos]
-                if word == "λ":
-                    self.tokens.append(Token("FUN", word, ident_start, line, col))
-                elif word == "∀":
-                    self.tokens.append(Token("FORALL", word, ident_start, line, col))
-                elif word == "→":
-                    self.tokens.append(Token("RARROW", word, ident_start, line, col))
-                elif word in ("true", "false"):
-                    self.tokens.append(Token("BOOL", word, ident_start, line, col))
-                elif word in KW_MAP:
-                    self.tokens.append(
-                        Token(KW_MAP[word], word, ident_start, line, col)
-                    )
-                else:
-                    self.tokens.append(Token("ID", word, ident_start, line, col))
-                continue
-
-            tri = self.source[self.pos : self.pos + 3]
-            if tri in ("&&&", "|||", "<<<", ">>>"):
-                self.pos += 3
-                kind_map = {"&&&": "AMPAMPAMP", "|||": "PIPEPIPEPIPE", "<<<": "LTLTLT", ">>>": "GTGTGT"}
-                self.tokens.append(Token(kind_map[tri], tri, pos, line, col))
-                self.col += 3
-                continue
-
-            multi = {
-                "->": "RARROW",
-                "=>": "ARROW",
-                "::": "DOUBLECOLON",
-                ":=": "COLONEQ",
-                "++": "PLUSPLUS",
-                "|>": "PIPEOP",
-                "<|": "PIPEOP",
-                "≥": "GE",
-                "≤": "LE",
-                "≠": "NE",
-                "<=": "LE",
-                ">=": "GE",
-                "!=": "NE",
-                "==": "DEQ",
-                "&&": "AMPAMP",
-                "||": "PIPEPIPE",
-                "<<": "LTLT",
-                ">>": "GTGT",
-            }
-            two = self.source[self.pos : self.pos + 2]
-            if two in multi:
-                self.pos += 2
-                self.tokens.append(Token(multi[two], two, pos, line, col))
-                self.col += 2
-                continue
-
-            unicode_single = {
-                "→": "RARROW",
-                "≤": "LE",
-                "≥": "GE",
-                "≠": "NE",
-                "∀": "FORALL",
-                "λ": "FUN",
-            }
-            if ch in unicode_single:
-                self._advance()
-                self.tokens.append(Token(unicode_single[ch], ch, pos, line, col))
-                continue
-
-            single = {
-                ";": "SEMI",
-                "(": "LPAREN",
-                ")": "RPAREN",
-                "[": "LBRACK",
-                "]": "RBRACK",
-                "{": "LBRACE",
-                "}": "RBRACE",
-                ":": "COLON",
-                ",": "COMMA",
-                ".": "DOT",
-                "|": "PIPE",
-                "=": "EQ",
-                "+": "PLUS",
-                "-": "MINUS",
-                "*": "STAR",
-                "/": "SLASH",
-                "%": "PERCENT",
-                "^": "HAT",
-                "<": "LT",
-                ">": "GT",
-                "!": "BANG",
-                "@": "AT",
-                "$": "DOLLAR",
-                "~": "TILDE",
-                "&": "AMP",
-                "?": "QMARK",
-                "#": "HASH",
-            }
-            if ch in single:
-                self._advance()
-                self.tokens.append(Token(single[ch], ch, pos, line, col))
-                continue
-
-            self._error(f"Unexpected character {ch!r}")
-
+            self._tokenize_one()
         self.tokens.append(Token("EOF", "", self.pos, self.line, self.col))
+
+    def _tokenize_one(self) -> None:
+        pos, line, col = self.pos, self.line, self.col
+        ch = self._peek()
+        if ch is None:
+            return
+
+        if ch in " \t\n\r":
+            self._skip_ws()
+            return
+
+        if (ch == "-" or ch == "/") and self._peek(1) == "-":
+            self._skip_comment()
+            return
+
+        if ch == '"':
+            self._advance()
+            self.tokens.append(Token("STR", self._read_string('"'), pos, line, col))
+            return
+
+        if ch == "'":
+            self._tokenize_char(pos, line, col)
+            return
+
+        if ch.isdigit():
+            self._tokenize_number(pos, line, col)
+            return
+
+        if ch.isalpha() or ch in "_λ∀":
+            self._tokenize_ident(line, col)
+            return
+
+        if self._tokenize_tri(pos, line, col):
+            return
+
+        if self._tokenize_multi(pos, line, col):
+            return
+
+        if self._tokenize_single(ch, pos, line, col):
+            return
+
+        self._error(f"Unexpected character {ch!r}")
+
+    def _tokenize_single(self, ch: str, pos: int, line: int, col: int) -> bool:
+        if ch in self._UNICODE_SINGLE:
+            self._advance()
+            self.tokens.append(Token(self._UNICODE_SINGLE[ch], ch, pos, line, col))
+            return True
+        if ch in self._SINGLE:
+            self._advance()
+            self.tokens.append(Token(self._SINGLE[ch], ch, pos, line, col))
+            return True
+        return False
+
+    def _tokenize_char(self, pos: int, line: int, col: int) -> None:
+        self._advance()
+        if self._peek() == "\\":
+            self._advance()
+            c = self._advance()
+        else:
+            c = self._advance()
+        if self._advance() != "'":
+            self._error("Expected closing single quote")
+        self.tokens.append(Token("CHAR", c, pos, line, col))
+
+    def _tokenize_number(self, pos: int, line: int, col: int) -> None:
+        start = self._read_number()
+        raw = self.source[start : self.pos]
+        if "." in raw or "e" in raw.lower():
+            self.tokens.append(Token("FLOAT", raw, start, line, col))
+        else:
+            self.tokens.append(Token("NUM", raw, start, line, col))
+
+    def _tokenize_ident(self, line: int, col: int) -> None:
+        ident_start = self.pos
+        while self.pos < len(self.source):
+            c = self._peek()
+            if c is None:
+                break
+            if c.isalnum() or c in "_'λ∀":
+                self._advance()
+            else:
+                break
+        word = self.source[ident_start : self.pos]
+        if word == "λ":
+            self.tokens.append(Token("FUN", word, ident_start, line, col))
+        elif word == "∀":
+            self.tokens.append(Token("FORALL", word, ident_start, line, col))
+        elif word == "→":
+            self.tokens.append(Token("RARROW", word, ident_start, line, col))
+        elif word in ("true", "false"):
+            self.tokens.append(Token("BOOL", word, ident_start, line, col))
+        elif word in KW_MAP:
+            self.tokens.append(Token(KW_MAP[word], word, ident_start, line, col))
+        else:
+            self.tokens.append(Token("ID", word, ident_start, line, col))
+
+    def _tokenize_tri(self, pos: int, line: int, col: int) -> bool:
+        tri = self.source[self.pos : self.pos + 3]
+        if tri not in self._TRIPLE:
+            return False
+        kind = self._TRIPLE[tri]
+        self.pos += 3
+        self.col += 3
+        self.tokens.append(Token(kind, tri, pos, line, col))
+        return True
+
+    def _tokenize_multi(self, pos: int, line: int, col: int) -> bool:
+        two = self.source[self.pos : self.pos + 2]
+        if two not in self._MULTI:
+            return False
+        kind = self._MULTI[two]
+        self.pos += 2
+        self.col += 2
+        self.tokens.append(Token(kind, two, pos, line, col))
+        return True
