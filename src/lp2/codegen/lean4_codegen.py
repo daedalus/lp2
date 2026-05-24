@@ -200,7 +200,13 @@ def _gen_expr_Float(node: LeanExpr, parent_prec: int = 0) -> str:
 
 
 def _gen_expr_String(node: LeanExpr, parent_prec: int = 0) -> str:
-    return repr(node.value)
+    s = node.value
+    s = s.replace("\\", "\\\\")
+    s = s.replace('"', '\\"')
+    s = s.replace("\n", "\\n")
+    s = s.replace("\t", "\\t")
+    s = s.replace("\r", "\\r")
+    return f'"{s}"'
 
 
 def _gen_expr_Char(node: LeanExpr, parent_prec: int = 0) -> str:

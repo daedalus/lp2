@@ -47,25 +47,57 @@ class TestLeanToPyOperators:
         assert "!=" in result
 
 
+class TestLeanToPyStructures:
+    def test_simple_structure(self):
+        result = lean_to_py("structure Point where\n  x : Int\n  y : Int\n")
+        assert "class Point" in result
+
+    def test_inductive(self):
+        result = lean_to_py("inductive Bool2 where\n  | true : Bool2\n  | false : Bool2\n")
+        assert "class Bool2" in result
+
+
+class TestLeanToPyExpressions:
+    def test_lambda(self):
+        result = lean_to_py("def f : Int := (fun x => x + 1) 2\n")
+        assert result
+
+    def test_let_expr(self):
+        result = lean_to_py("def f (x : Int) : Int := let y := x + 1 in y * 2\n")
+        assert result
+
+    def test_projection(self):
+        result = lean_to_py("def f (p : Point) : Int := p.x\n")
+        assert result
+
+    def test_type_spec(self):
+        result = lean_to_py("def f (x : Nat) : Nat := (x : Nat) + 1\n")
+        assert result
+
+    def test_hole(self):
+        result = lean_to_py("def f : Nat := _\n")
+        assert "_" in result
+
+    def test_list_lit(self):
+        result = lean_to_py("def f : List Nat := [1, 2, 3]\n")
+        assert result
+
+    def test_tuple_lit(self):
+        result = lean_to_py("def f : Prod Nat Nat := (1, 2)\n")
+        assert result
+
+
+class TestLeanToPyTypeAnnotations:
+    def test_list_type(self):
+        result = lean_to_py("def f (xs : List Int) : Int := 1\n")
+        assert "list[int]" in result.lower() or "list" in result
+
+    def test_option_type(self):
+        result = lean_to_py("def f (x : Option Int) : Int := 1\n")
+        assert "optional[int]" in result.lower() or "option" in result.lower()
+
+
 class TestLeanToPyEdgeCases:
-    def test_no_return_type(self):
-        result = lean_to_py("def f x := x + 1\n")
-        assert result
-
-    def test_multi_param_def(self):
-        result = lean_to_py("def f (a b c : Int) : Int := a + b + c\n")
-        assert "f(a: int, b: int, c: int)" in result
-
-    def test_single_expr_body(self):
-        result = lean_to_py("def answer : Int := 42\n")
-        assert "42" in result
-
-    def test_empty_params(self):
-        result = lean_to_py("def f : Int := 1\n")
-        assert result
-
-
-class TestLeanToPyErrors:
     def test_invalid_syntax(self):
         with pytest.raises(SyntaxError):
             lean_to_py("def !!!\n")

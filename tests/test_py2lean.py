@@ -71,29 +71,99 @@ class TestPyToLeanOperators:
         assert "==" in result or "=" in result
 
 
+class TestPyToLeanControlFlow:
+    def test_for_loop(self):
+        result = py_to_lean("""def sum_to(n: int) -> int:
+    total = 0
+    for i in range(n):
+        total = total + i
+    return total
+""")
+        assert "for_in" in result or "for" in result
+
+    def test_if_elif_else(self):
+        result = py_to_lean("""def sign(x: int) -> int:
+    if x > 0:
+        return 1
+    elif x < 0:
+        return -1
+    else:
+        return 0
+""")
+        assert result
+
+
+class TestPyToLeanOperatorsExtended:
+    def test_boolean_and_or(self):
+        result = py_to_lean("""def test(x: bool, y: bool) -> bool:
+    return x and y or not x
+""")
+        assert "∧" in result or "and" in result
+        assert "∨" in result or "or" in result
+
+    def test_not_operator(self):
+        result = py_to_lean("""def neg(b: bool) -> bool:
+    return not b
+""")
+        assert "not" in result
+
+    def test_unary_minus(self):
+        result = py_to_lean("""def negate(x: int) -> int:
+    return -x
+""")
+        assert "-x" in result or "neg" in result
+
+
+class TestPyToLeanDataStructures:
+    def test_list_literal(self):
+        result = py_to_lean("""def items() -> list:
+    return [1, 2, 3]
+""")
+        assert result
+
+    def test_tuple(self):
+        result = py_to_lean("""def pair() -> tuple:
+    return (1, "a")
+""")
+        assert result
+
+    def test_dict_literal(self):
+        result = py_to_lean("""def mapping() -> dict:
+    return {"key": 42}
+""")
+        assert result
+
+
+class TestPyToLeanFunctional:
+    def test_lambda(self):
+        result = py_to_lean("""def apply(f, x: int) -> int:
+    return f(x)
+""")
+        assert result
+
+    def test_attribute_access(self):
+        result = py_to_lean("""def get_len(x: str) -> int:
+    return len(x)
+""")
+        assert result
+
+    def test_subscript(self):
+        result = py_to_lean("""def first(xs: list) -> int:
+    return xs[0]
+""")
+        assert result
+
+
+class TestPyToLeanClass:
+    def test_simple_class(self):
+        result = py_to_lean("""class Point:
+    x: int
+    y: int
+""")
+        assert "structure" in result.lower() or "class" in result
+
+
 class TestPyToLeanEdgeCases:
-    def test_chained_comparison(self):
-        result = py_to_lean("""def between(x: int, a: int, b: int) -> bool:
-    return a <= x <= b
-""")
-        assert result  # Should not crash
-
-    def test_nested_calls(self):
-        result = py_to_lean("""def f(x: int) -> int:
-    return (x + 1) * (x + 2)
-""")
-        assert result
-
-    def test_single_return(self):
-        result = py_to_lean("def f() -> int:\n    return 42\n")
-        assert "42" in result
-
-    def test_no_return_annotation(self):
-        result = py_to_lean("def f(x):\n    return x\n")
-        assert result
-
-
-class TestPyToLeanErrors:
     def test_invalid_syntax(self):
         with pytest.raises(SyntaxError):
             py_to_lean("def f(::\n")

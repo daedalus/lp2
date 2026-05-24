@@ -66,3 +66,21 @@ class TestRoundTripLeanPyLean:
         middle = lean_to_py(source)
         result = py_to_lean(middle)
         assert "isZero" in result
+
+    def test_bool_roundtrip(self):
+        source = "def f (a b : Bool) : Bool := a = b\n"
+        middle = lean_to_py(source)
+        result = py_to_lean(middle)
+        assert result
+
+    def test_lambda_roundtrip(self):
+        source = "def f : Int := (fun x => x) 1\n"
+        middle = lean_to_py(source)
+        result = py_to_lean(middle)
+        assert result
+
+    def test_let_roundtrip(self):
+        source = "def f (x : Int) : Int := let y := x + 1 in y * 2\n"
+        middle = lean_to_py(source)
+        result = py_to_lean(middle)
+        assert result
