@@ -3,54 +3,54 @@ from lp2.ast.python_ast import *
 
 
 _TYPE_MAP = {
-    int: 'int',
-    float: 'float',
-    bool: 'bool',
-    str: 'str',
-    bytes: 'bytes',
-    type(None): 'None',
+    int: "int",
+    float: "float",
+    bool: "bool",
+    str: "str",
+    bytes: "bytes",
+    type(None): "None",
 }
 
 
 _BINOP_MAP = {
-    py_ast.Add: '+',
-    py_ast.Sub: '-',
-    py_ast.Mult: '*',
-    py_ast.Div: '/',
-    py_ast.FloorDiv: '//',
-    py_ast.Mod: '%',
-    py_ast.Pow: '**',
-    py_ast.LShift: '<<',
-    py_ast.RShift: '>>',
-    py_ast.BitOr: '|',
-    py_ast.BitXor: '^',
-    py_ast.BitAnd: '&',
-    py_ast.MatMult: '@',
+    py_ast.Add: "+",
+    py_ast.Sub: "-",
+    py_ast.Mult: "*",
+    py_ast.Div: "/",
+    py_ast.FloorDiv: "//",
+    py_ast.Mod: "%",
+    py_ast.Pow: "**",
+    py_ast.LShift: "<<",
+    py_ast.RShift: ">>",
+    py_ast.BitOr: "|",
+    py_ast.BitXor: "^",
+    py_ast.BitAnd: "&",
+    py_ast.MatMult: "@",
 }
 
 _UNARYOP_MAP = {
-    py_ast.UAdd: '+',
-    py_ast.USub: '-',
-    py_ast.Not: 'not',
-    py_ast.Invert: '~',
+    py_ast.UAdd: "+",
+    py_ast.USub: "-",
+    py_ast.Not: "not",
+    py_ast.Invert: "~",
 }
 
 _CMPOP_MAP = {
-    py_ast.Eq: '==',
-    py_ast.NotEq: '!=',
-    py_ast.Lt: '<',
-    py_ast.LtE: '<=',
-    py_ast.Gt: '>',
-    py_ast.GtE: '>=',
-    py_ast.Is: 'is',
-    py_ast.IsNot: 'is not',
-    py_ast.In: 'in',
-    py_ast.NotIn: 'not in',
+    py_ast.Eq: "==",
+    py_ast.NotEq: "!=",
+    py_ast.Lt: "<",
+    py_ast.LtE: "<=",
+    py_ast.Gt: ">",
+    py_ast.GtE: ">=",
+    py_ast.Is: "is",
+    py_ast.IsNot: "is not",
+    py_ast.In: "in",
+    py_ast.NotIn: "not in",
 }
 
 _BOOLOP_MAP = {
-    py_ast.And: 'and',
-    py_ast.Or: 'or',
+    py_ast.And: "and",
+    py_ast.Or: "or",
 }
 
 
@@ -139,17 +139,19 @@ def _convert_stmt(node: py_ast.stmt) -> PyStmt:
     elif isinstance(node, py_ast.Match):
         cases = []
         for c in node.cases:
-            cases.append(PyMatchCase(
-                pattern=_convert_pattern(c.pattern),
-                guard=_convert_expr(c.guard) if c.guard else None,
-                body=[_convert_stmt(s) for s in c.body],
-            ))
+            cases.append(
+                PyMatchCase(
+                    pattern=_convert_pattern(c.pattern),
+                    guard=_convert_expr(c.guard) if c.guard else None,
+                    body=[_convert_stmt(s) for s in c.body],
+                )
+            )
         return PyMatch(subject=_convert_expr(node.subject), cases=cases)
     elif isinstance(node, py_ast.Import):
         return PyImport(names=[alias.name for alias in node.names])
     elif isinstance(node, py_ast.ImportFrom):
-        module = node.module or ''
-        return PyImport(names=[f'{module}.{alias.name}' for alias in node.names])
+        module = node.module or ""
+        return PyImport(names=[f"{module}.{alias.name}" for alias in node.names])
     elif isinstance(node, py_ast.Raise):
         return PyRaise(exc=_convert_expr(node.exc))
     elif isinstance(node, py_ast.Try):
@@ -157,7 +159,9 @@ def _convert_stmt(node: py_ast.stmt) -> PyStmt:
             body=[_convert_stmt(s) for s in node.body],
             handlers=[_convert_except_handler(h) for h in node.handlers],
             orelse=[_convert_stmt(s) for s in node.orelse] if node.orelse else [],
-            finalbody=[_convert_stmt(s) for s in node.finalbody] if node.finalbody else [],
+            finalbody=[_convert_stmt(s) for s in node.finalbody]
+            if node.finalbody
+            else [],
         )
     elif isinstance(node, py_ast.With):
         return PyWith(
@@ -180,7 +184,7 @@ def _convert_stmt(node: py_ast.stmt) -> PyStmt:
         return PyNonlocal(names=list(node.names))
     elif isinstance(node, py_ast.Delete):
         return PyDelete(targets=[_convert_expr(t) for t in node.targets])
-    elif isinstance(node, py_ast.TypeAlias):
+    elif hasattr(py_ast, 'TypeAlias') and isinstance(node, py_ast.TypeAlias):
         return PyTypeAlias(
             name=_convert_expr(node.name),
             value=_convert_expr(node.value),
@@ -188,19 +192,21 @@ def _convert_stmt(node: py_ast.stmt) -> PyStmt:
     raise ValueError(f"Unknown statement: {type(node).__name__}")
 
 
-def _convert_expr(node: py_ast.expr) -> PyExpr:
+def _convert_expr(node: py_ast.expr | None) -> PyExpr | None:
     if node is None:
         return None
     if isinstance(node, py_ast.Name):
         return PyName(id=node.id)
     elif isinstance(node, py_ast.Constant):
         kind = None
-        if node.kind == 'u':
-            kind = 'u'
+        if node.kind == "u":
+            kind = "u"
         return PyConstant(value=node.value, kind=kind)
     elif isinstance(node, py_ast.BinOp):
         op = _BINOP_MAP.get(type(node.op), str(type(node.op).__name__))
-        return PyBinOp(left=_convert_expr(node.left), op=op, right=_convert_expr(node.right))
+        return PyBinOp(
+            left=_convert_expr(node.left), op=op, right=_convert_expr(node.right)
+        )
     elif isinstance(node, py_ast.UnaryOp):
         op = _UNARYOP_MAP.get(type(node.op), str(type(node.op).__name__))
         return PyUnaryOp(op=op, operand=_convert_expr(node.operand))
@@ -218,7 +224,9 @@ def _convert_expr(node: py_ast.expr) -> PyExpr:
         return PyCall(
             func=_convert_expr(node.func),
             args=[_convert_expr(a) for a in node.args],
-            kwargs=[(kw.arg, _convert_expr(kw.value)) for kw in node.keywords if kw.arg],
+            kwargs=[
+                (kw.arg, _convert_expr(kw.value)) for kw in node.keywords if kw.arg
+            ],
         )
     elif isinstance(node, py_ast.IfExp):
         return PyIfExp(
@@ -229,7 +237,9 @@ def _convert_expr(node: py_ast.expr) -> PyExpr:
     elif isinstance(node, py_ast.Attribute):
         return PyAttribute(value=_convert_expr(node.value), attr=node.attr)
     elif isinstance(node, py_ast.Subscript):
-        return PySubscript(value=_convert_expr(node.value), slice=_convert_expr(node.slice))
+        return PySubscript(
+            value=_convert_expr(node.value), slice=_convert_expr(node.slice)
+        )
     elif isinstance(node, py_ast.Slice):
         return PySlice(
             lower=_convert_expr(node.lower) if node.lower else None,
@@ -249,8 +259,10 @@ def _convert_expr(node: py_ast.expr) -> PyExpr:
         )
     elif isinstance(node, py_ast.Lambda):
         return PyLambda(
-            args=[(arg.arg, _convert_expr(arg.annotation) if arg.annotation else None)
-                  for arg in node.args.args],
+            args=[
+                (arg.arg, _convert_expr(arg.annotation) if arg.annotation else None)
+                for arg in node.args.args
+            ],
             body=_convert_expr(node.body),
         )
     elif isinstance(node, py_ast.ListComp):
@@ -277,8 +289,10 @@ def _convert_expr(node: py_ast.expr) -> PyExpr:
         return PyYield(value=_convert_expr(node.value) if node.value else None)
     elif isinstance(node, py_ast.YieldFrom):
         return PyYieldFrom(value=_convert_expr(node.value))
-    elif isinstance(node, py_ast.Walrus):
-        return PyWalrus(target=_convert_expr(node.target), value=_convert_expr(node.value))
+    elif isinstance(node, py_ast.NamedExpr):
+        return PyWalrus(
+            target=_convert_expr(node.target), value=_convert_expr(node.value)
+        )
     elif isinstance(node, py_ast.NameConstant):
         return PyConstant(value=node.value)
     elif isinstance(node, py_ast.Num):
@@ -288,20 +302,34 @@ def _convert_expr(node: py_ast.expr) -> PyExpr:
     raise ValueError(f"Unknown expression: {type(node).__name__}")
 
 
-def _convert_args(node: py_ast.arguments) -> list[tuple[str, Optional[PyExpr], Optional[PyExpr]]]:
+def _convert_args(
+    node: py_ast.arguments,
+) -> list[tuple[str, PyExpr | None, PyExpr | None]]:
     args = []
     for arg in node.args:
         annotation = _convert_expr(arg.annotation) if arg.annotation else None
         args.append((arg.arg, annotation, None))
     if node.vararg:
-        args.append(('*' + node.vararg.arg,
-                     _convert_expr(node.vararg.annotation) if node.vararg.annotation else None, None))
+        args.append(
+            (
+                "*" + node.vararg.arg,
+                _convert_expr(node.vararg.annotation)
+                if node.vararg.annotation
+                else None,
+                None,
+            )
+        )
     for arg in node.kwonlyargs:
         annotation = _convert_expr(arg.annotation) if arg.annotation else None
         args.append((arg.arg, annotation, None))
     if node.kwarg:
-        args.append(('**' + node.kwarg.arg,
-                     _convert_expr(node.kwarg.annotation) if node.kwarg.annotation else None, None))
+        args.append(
+            (
+                "**" + node.kwarg.arg,
+                _convert_expr(node.kwarg.annotation) if node.kwarg.annotation else None,
+                None,
+            )
+        )
     if node.defaults:
         for i, default in enumerate(node.defaults):
             idx = len(node.args) - len(node.defaults) + i
@@ -315,7 +343,7 @@ def _convert_comprehension(node: py_ast.comprehension) -> PyComprehension:
         target=_convert_expr(node.target),
         iter=_convert_expr(node.iter),
         ifs=[_convert_expr(e) for e in node.ifs],
-        is_async=node.is_async,
+        is_async=bool(node.is_async),
     )
 
 
@@ -325,7 +353,7 @@ def _convert_pattern(node: py_ast.pattern) -> PyExpr:
     elif isinstance(node, py_ast.MatchSingleton):
         return PyConstant(value=node.value)
     elif isinstance(node, py_ast.MatchAs):
-        name = PyName(id=node.name) if node.name else PyName(id='_')
+        name = PyName(id=node.name) if node.name else PyName(id="_")
         if node.pattern:
             return _convert_pattern(node.pattern)
         return name
@@ -344,5 +372,7 @@ def _convert_except_handler(node: py_ast.ExceptHandler) -> PyExceptHandler:
 
 
 def _convert_withitem(node: py_ast.withitem) -> PyNode:
-    return (_convert_expr(node.context_expr),
-            _convert_expr(node.optional_vars) if node.optional_vars else None)
+    return (
+        _convert_expr(node.context_expr),
+        _convert_expr(node.optional_vars) if node.optional_vars else None,
+    )
