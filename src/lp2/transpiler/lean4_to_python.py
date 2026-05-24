@@ -1,7 +1,5 @@
-from typing import Optional
 from lp2.ast.lean4_ast import *
 from lp2.ast.python_ast import *
-
 
 _LEAN_TYPE_TO_PY = {
     "Int": PyName("int"),
@@ -30,29 +28,33 @@ def lean_to_py(node: LeanNode) -> PyNode:
     raise ValueError(f"Unknown node: {type(node).__name__}")
 
 
-def _cmd_to_stmt(node: LeanCommand) -> Optional[PyStmt]:
-    if isinstance(node, LeanDef):
-        return _def_to_func(node)
-    elif isinstance(node, LeanStructure):
-        return _structure_to_class(node)
-    elif isinstance(node, LeanClass):
-        return _structure_to_class(node)
-    elif isinstance(node, LeanInductive):
-        return _inductive_to_class(node)
-    elif isinstance(node, LeanAxiom):
-        return PyPass()
-    elif isinstance(node, LeanExample):
-        if node.expr:
-            return PyExprStmt(expr=_expr_to_py(node.expr))
-        return None
-    elif isinstance(node, LeanOpen):
-        return PyImport(names=node.names)
-    elif isinstance(node, LeanVariable):
-        return None
-    elif isinstance(node, LeanNamespace):
-        stmts = [_cmd_to_stmt(c) for c in node.commands]
-        stmts = [s for s in stmts if s]
-        return PyClassDef(name=node.name, bases=[], body=stmts)
+# ---------------------------------------------------------------------------
+# _cmd_to_stmt  dispatch
+# ---------------------------------------------------------------------------
+
+
+def _cmd_to_stmt_ns(n: LeanNamespace) -> PyStmt | None:
+    stmts = [_cmd_to_stmt(c) for c in n.commands]
+    return PyClassDef(name=n.name, bases=[], body=[s for s in stmts if s])
+
+
+_CMD_TO_STMT = {
+    LeanDef: lambda n: _def_to_func(n),
+    LeanStructure: lambda n: _structure_to_class(n),
+    LeanClass: lambda n: _structure_to_class(n),
+    LeanInductive: lambda n: _inductive_to_class(n),
+    LeanAxiom: lambda _: PyPass(),
+    LeanExample: lambda n: PyExprStmt(expr=_expr_to_py(n.expr)) if n.expr else None,
+    LeanOpen: lambda n: PyImport(names=n.names),
+    LeanVariable: lambda _: None,
+    LeanNamespace: _cmd_to_stmt_ns,
+}
+
+
+def _cmd_to_stmt(node: LeanCommand) -> PyStmt | None:
+    handler = _CMD_TO_STMT.get(type(node))
+    if handler:
+        return handler(node)
     return None
 
 
@@ -123,31 +125,52 @@ def _ensure_return(stmts: list[PyStmt]) -> list[PyStmt]:
     return stmts
 
 
+# ---------------------------------------------------------------------------
+# _expr_to_stmts  dispatch
+# ---------------------------------------------------------------------------
+
+
+def _estmts_let(n: LeanLet) -> list[PyStmt]:
+    inner = _expr_to_stmts(n.body)
+    val = _expr_to_py(n.value)
+    return [PyAssign(target=PyName(n.name), value=val)] + inner
+
+
+def _estmts_have(n: LeanHave) -> list[PyStmt]:
+    inner = _expr_to_stmts(n.body)
+    val = _expr_to_py(n.value)
+    return [PyAssign(target=PyName(n.name or "_"), value=val)] + inner
+
+
+def _estmts_if(n: LeanIf) -> list[PyStmt]:
+    test = _expr_to_py(n.cond)
+    then_stmts = _expr_to_stmts(n.then_expr)
+    else_stmts = _expr_to_stmts(n.else_expr) if n.else_expr else []
+    return [PyIf(test=test, body=then_stmts, orelse=else_stmts)]
+
+
+def _estmts_match(n: LeanMatch) -> list[PyStmt]:
+    subject = _expr_to_py(n.expr)
+    cases = []
+    for arm in n.arms:
+        pat = _pattern_to_expr(arm.pattern)
+        body = _expr_to_stmts(arm.rhs)
+        cases.append(PyMatchCase(pattern=pat, guard=None, body=body))
+    return [PyMatch(subject=subject, cases=cases)]
+
+
+_EXPR_TO_STMTS = {
+    LeanLet: _estmts_let,
+    LeanHave: _estmts_have,
+    LeanIf: _estmts_if,
+    LeanMatch: _estmts_match,
+    LeanLambda: lambda n: [PyReturn(value=_expr_to_py(n))],
+    LeanUnit: lambda _: [PyReturn(value=None)],
+}
+
+
 def _expr_to_stmts(node: LeanExpr) -> list[PyStmt]:
-    if isinstance(node, LeanLet):
-        inner = _expr_to_stmts(node.body)
-        val = _expr_to_py(node.value)
-        assign = PyAssign(target=PyName(node.name), value=val)
-        return [assign] + inner
-    elif isinstance(node, LeanHave):
-        inner = _expr_to_stmts(node.body)
-        val = _expr_to_py(node.value)
-        return [PyAssign(target=PyName(node.name or "_"), value=val)] + inner
-    elif isinstance(node, LeanIf):
-        test = _expr_to_py(node.cond)
-        then_stmts = _expr_to_stmts(node.then_expr)
-        else_stmts = _expr_to_stmts(node.else_expr) if node.else_expr else []
-        return [PyIf(test=test, body=then_stmts, orelse=else_stmts)]
-    elif isinstance(node, LeanMatch):
-        subject = _expr_to_py(node.expr)
-        cases = []
-        for arm in node.arms:
-            pat = _pattern_to_expr(arm.pattern)
-            body = _expr_to_stmts(arm.rhs)
-            guard = PyName("True")  # simplified
-            cases.append(PyMatchCase(pattern=pat, guard=None, body=body))
-        return [PyMatch(subject=subject, cases=cases)]
-    elif (
+    if (
         isinstance(node, LeanApp)
         and isinstance(node.func, LeanApp)
         and isinstance(node.func.func, LeanIdent)
@@ -160,17 +183,17 @@ def _expr_to_stmts(node: LeanExpr) -> list[PyStmt]:
                 body=_expr_to_stmts(node.arg),
             )
         ]
-    elif isinstance(node, LeanLambda) and len(node.params) == 1:
-        return [PyReturn(value=_expr_to_py(node))]
-    elif isinstance(node, LeanUnit):
-        return [PyReturn(value=None)]
-    else:
-        py_expr = _expr_to_py(node)
-        if isinstance(py_expr, PyName) and py_expr.id == "true":
-            return [PyReturn(value=PyConstant(True))]
-        elif isinstance(py_expr, PyName) and py_expr.id == "false":
-            return [PyReturn(value=PyConstant(False))]
-        return [PyReturn(value=py_expr)]
+
+    handler = _EXPR_TO_STMTS.get(type(node))
+    if handler:
+        return handler(node)
+
+    py_expr = _expr_to_py(node)
+    if isinstance(py_expr, PyName) and py_expr.id == "true":
+        return [PyReturn(value=PyConstant(True))]
+    if isinstance(py_expr, PyName) and py_expr.id == "false":
+        return [PyReturn(value=PyConstant(False))]
+    return [PyReturn(value=py_expr)]
 
 
 def _collect_app_args(node: LeanApp) -> tuple[list[LeanExpr], LeanExpr]:
@@ -195,144 +218,141 @@ def _collect_app_args(node: LeanApp) -> tuple[list[LeanExpr], LeanExpr]:
     return args, current
 
 
+# ---------------------------------------------------------------------------
+# _expr_to_py  dispatch
+# ---------------------------------------------------------------------------
+
+
+def _expr_py_ident(n: LeanIdent) -> PyExpr:
+    if n.name == "none":
+        return PyConstant(None)
+    if n.name == "true":
+        return PyConstant(True)
+    if n.name == "false":
+        return PyConstant(False)
+    return PyName(id=n.name)
+
+
+def _expr_py_app(n: LeanApp) -> PyExpr:
+    if isinstance(n.func, LeanIdent) and n.func.name == "List.cons":
+        if isinstance(n.arg, LeanListLit):
+            return PyList(elts=[_expr_to_py(e) for e in n.arg.elts])
+        if isinstance(n.arg, LeanIdent) and n.arg.name == "List.nil":
+            return PyList(elts=[_expr_to_py(n.func)])
+        return PyList(elts=[_expr_to_py(n.func), _expr_to_py(n.arg)])
+    if (
+        isinstance(n.func, LeanApp)
+        and isinstance(n.func.func, LeanIdent)
+        and n.func.func.name == "Prod.mk"
+    ):
+        left = _expr_to_py(n.func.arg)
+        right = _expr_to_py(n.arg)
+        if isinstance(left, PyTuple):
+            return PyTuple(elts=left.elts + [right])
+        return PyTuple(elts=[left, right])
+    args, func = _collect_app_args(n)
+    return PyCall(
+        func=_expr_to_py(func), args=[_expr_to_py(a) for a in args], kwargs=[]
+    )
+
+
+_OP_MAP = {
+    "+": "+",
+    "-": "-",
+    "*": "*",
+    "/": "/",
+    "%": "%",
+    "=": "==",
+    "==": "==",
+    "!=": "!=",
+    "≠": "!=",
+    "<": "<",
+    ">": ">",
+    "<=": "<=",
+    ">=": ">=",
+    "≤": "<=",
+    "≥": ">=",
+    "&&": "and",
+    "||": "or",
+    "∧": "and",
+    "∨": "or",
+    "::": "::",
+    "|>": "|>",
+    "^": "^",
+    "++": "+",
+}
+
+
+def _expr_py_binop(n: LeanBinOp) -> PyExpr:
+    left = _expr_to_py(n.left)
+    right = _expr_to_py(n.right)
+    py_op = _OP_MAP.get(n.op, n.op)
+    if py_op == "::":
+        if isinstance(right, PyList):
+            return PyList(elts=[left] + right.elts)
+        return PyList(elts=[left, right])
+    return PyBinOp(left=left, op=py_op, right=right)
+
+
+def _expr_py_lambda(n: LeanLambda) -> PyExpr:
+    params = []
+    for p in n.params:
+        params.append((p.name, _lean_type_to_py(p.type) if p.type else None))
+    return PyLambda(args=params, body=_expr_to_py(n.body))
+
+
+def _expr_py_typearrow(n: LeanTypeArrow) -> PyExpr:
+    left = _expr_to_py(n.from_type)
+    right = _expr_to_py(n.to_type)
+    return PyBinOp(left=left, op="->", right=right)
+
+
+def _expr_py_if(n: LeanIf) -> PyExpr:
+    test = _expr_to_py(n.cond)
+    then_expr = _expr_to_py(n.then_expr)
+    else_expr = _expr_to_py(n.else_expr) if n.else_expr else PyConstant(None)
+    return PyIfExp(test=test, body=then_expr, orelse=else_expr)
+
+
+_EXPR_TO_PY = {
+    LeanIdent: _expr_py_ident,
+    LeanNum: lambda n: PyConstant(value=n.value),
+    LeanFloat: lambda n: PyConstant(value=n.value),
+    LeanString: lambda n: PyConstant(value=n.value),
+    LeanChar: lambda n: PyConstant(value=n.value),
+    LeanBool: lambda n: PyConstant(value=n.value),
+    LeanUnit: lambda _: PyConstant(None),
+    LeanHole: lambda _: PyName("_"),
+    LeanSort: lambda _: PyName("type"),
+    LeanApp: _expr_py_app,
+    LeanBinOp: _expr_py_binop,
+    LeanUnaryOp: lambda n: PyUnaryOp(op=n.op, operand=_expr_to_py(n.operand)),
+    LeanLambda: _expr_py_lambda,
+    LeanForall: lambda _: PyName("forall"),
+    LeanTypeArrow: _expr_py_typearrow,
+    LeanTypeSpec: lambda n: _expr_to_py(n.expr),
+    LeanIf: _expr_py_if,
+    LeanLet: lambda n: _expr_to_py(n.body),
+    LeanProj: lambda n: PyAttribute(value=_expr_to_py(n.expr), attr=n.field),
+    LeanListLit: lambda n: PyList(elts=[_expr_to_py(e) for e in n.elts]),
+    LeanTupleLit: lambda n: PyTuple(elts=[_expr_to_py(e) for e in n.elts]),
+    LeanStructInst: lambda n: PyName(n.struct_name),
+    LeanMatch: lambda n: PyCall(
+        func=PyName("match"), args=[_expr_to_py(n.expr)], kwargs=[]
+    ),
+    LeanDo: lambda _: PyName("do_block"),
+    LeanCalc: lambda _: PyName("calc_block"),
+    LeanBy: lambda _: PyName("by_block"),
+    LeanNamedArg: lambda n: _expr_to_py(n.value),
+}
+
+
 def _expr_to_py(node: LeanExpr) -> PyExpr:
     if node is None:
         return PyConstant(None)
-    if isinstance(node, LeanIdent):
-        name = node.name
-        if name == "none":
-            return PyConstant(None)
-        if name == "true":
-            return PyConstant(True)
-        if name == "false":
-            return PyConstant(False)
-        return PyName(id=name)
-    elif isinstance(node, LeanNum):
-        if node.is_nat:
-            return PyConstant(value=node.value)
-        return PyConstant(value=node.value)
-    elif isinstance(node, LeanFloat):
-        return PyConstant(value=node.value)
-    elif isinstance(node, LeanString):
-        return PyConstant(value=node.value)
-    elif isinstance(node, LeanChar):
-        return PyConstant(value=node.value)
-    elif isinstance(node, LeanBool):
-        return PyConstant(value=node.value)
-    elif isinstance(node, LeanUnit):
-        return PyConstant(None)
-    elif isinstance(node, LeanHole):
-        return PyName("_")
-    elif isinstance(node, LeanSort):
-        return PyName("type")
-    elif isinstance(node, LeanApp):
-        if isinstance(node.func, LeanIdent) and node.func.name == "List.cons":
-            if isinstance(node.arg, LeanListLit):
-                return PyList(elts=[_expr_to_py(e) for e in node.arg.elts])
-            if isinstance(node.arg, LeanIdent) and node.arg.name == "List.nil":
-                return PyList(elts=[_expr_to_py(node.func)])
-            return PyList(elts=[_expr_to_py(node.func), _expr_to_py(node.arg)])
-        elif (
-            isinstance(node.func, LeanApp)
-            and isinstance(node.func.func, LeanIdent)
-            and node.func.func.name == "Prod.mk"
-        ):
-            left = _expr_to_py(node.func.arg)
-            right = _expr_to_py(node.arg)
-            if isinstance(left, PyTuple) and isinstance(right, PyExpr):
-                return PyTuple(elts=left.elts + [right])
-            return PyTuple(elts=[left, right])
-        args, func = _collect_app_args(node)
-        func_expr = _expr_to_py(func)
-        py_args = [_expr_to_py(a) for a in args]
-        return PyCall(func=func_expr, args=py_args, kwargs=[])
-    elif isinstance(node, LeanBinOp):
-        op_map = {
-            "+": "+",
-            "-": "-",
-            "*": "*",
-            "/": "/",
-            "%": "%",
-            "=": "==",
-            "==": "==",
-            "!=": "!=",
-            "≠": "!=",
-            "!=": "!=",
-            "<": "<",
-            ">": ">",
-            "<=": "<=",
-            ">=": ">=",
-            "≤": "<=",
-            "≥": ">=",
-            "&&": "and",
-            "||": "or",
-            "∧": "and",
-            "∨": "or",
-            "::": "::",
-            "|>": "|>",
-            "^": "^",
-            "++": "+",
-        }
-        left = _expr_to_py(node.left)
-        right = _expr_to_py(node.right)
-        py_op = op_map.get(node.op, node.op)
-        if py_op == "::":
-            if isinstance(right, PyList):
-                return PyList(elts=[left] + right.elts)
-            return PyList(elts=[left, right])
-        if (
-            isinstance(left, PyConstant)
-            and isinstance(right, PyConstant)
-            and isinstance(left.value, str)
-            and isinstance(right.value, str)
-        ):
-            pass
-        return PyBinOp(left=left, op=py_op, right=right)
-    elif isinstance(node, LeanUnaryOp):
-        operand = _expr_to_py(node.operand)
-        return PyUnaryOp(op=node.op, operand=operand)
-    elif isinstance(node, LeanLambda):
-        params = []
-        for p in node.params:
-            params.append((p.name, _lean_type_to_py(p.type) if p.type else None))
-        body = _expr_to_py(node.body)
-        return PyLambda(args=params, body=body)
-    elif isinstance(node, LeanForall):
-        return PyName("forall")
-    elif isinstance(node, LeanTypeArrow):
-        left = _expr_to_py(node.from_type)
-        right = _expr_to_py(node.to_type)
-        return PyBinOp(left=left, op="->", right=right)
-    elif isinstance(node, LeanTypeSpec):
-        expr = _expr_to_py(node.expr)
-        return expr
-    elif isinstance(node, LeanIf):
-        test = _expr_to_py(node.cond)
-        then_expr = _expr_to_py(node.then_expr)
-        else_expr = _expr_to_py(node.else_expr) if node.else_expr else PyConstant(None)
-        return PyIfExp(test=test, body=then_expr, orelse=else_expr)
-    elif isinstance(node, LeanLet):
-        body = _expr_to_py(node.body)
-        return body
-    elif isinstance(node, LeanProj):
-        return PyAttribute(value=_expr_to_py(node.expr), attr=node.field)
-    elif isinstance(node, LeanListLit):
-        return PyList(elts=[_expr_to_py(e) for e in node.elts])
-    elif isinstance(node, LeanTupleLit):
-        return PyTuple(elts=[_expr_to_py(e) for e in node.elts])
-    elif isinstance(node, LeanStructInst):
-        return PyName(node.struct_name)
-    elif isinstance(node, LeanMatch):
-        subject = _expr_to_py(node.expr)
-        return PyCall(func=PyName("match"), args=[subject], kwargs=[])
-    elif isinstance(node, LeanDo):
-        return PyName("do_block")
-    elif isinstance(node, LeanCalc):
-        return PyName("calc_block")
-    elif isinstance(node, LeanBy):
-        return PyName("by_block")
-    elif isinstance(node, LeanNamedArg):
-        return _expr_to_py(node.value)
+    handler = _EXPR_TO_PY.get(type(node))
+    if handler:
+        return handler(node)
     return PyName("unknown")
 
 
@@ -354,42 +374,52 @@ def _pattern_to_expr(node: LeanPattern) -> PyExpr:
     return PyName(id="_")
 
 
+# ---------------------------------------------------------------------------
+# _lean_type_to_py  dispatch
+# ---------------------------------------------------------------------------
+
+
+def _type_py_ident(n: LeanIdent) -> PyExpr:
+    if n.name in _LEAN_TYPE_TO_PY:
+        return _LEAN_TYPE_TO_PY[n.name]
+    return PyName(id=n.name)
+
+
+def _type_py_app(n: LeanApp) -> PyExpr:
+    if isinstance(n.func, LeanIdent):
+        base = n.func.name
+        arg = (
+            _lean_type_to_py(n.arg)
+            if not isinstance(n.arg, LeanHole)
+            else PyName("Any")
+        )
+        if base == "List":
+            return PySubscript(value=PyName("list"), slice=arg)
+        if base == "Option":
+            return PySubscript(value=PyName("Optional"), slice=arg)
+        if base == "HashMap":
+            return PySubscript(value=PyName("dict"), slice=PyName("Any"))
+        if base == "Set":
+            return PySubscript(value=PyName("set"), slice=arg)
+        if base == "Prod":
+            return PyTuple(elts=[PyName("Any"), PyName("Any")])
+        return PySubscript(value=PyName(base), slice=arg)
+    return PyName("Any")
+
+
+_TYPE_TO_PY = {
+    LeanIdent: _type_py_ident,
+    LeanApp: _type_py_app,
+    LeanTypeArrow: lambda _: PyName("Any"),
+    LeanSort: lambda _: PyName("Any"),
+    LeanHole: lambda _: PyName("Any"),
+}
+
+
 def _lean_type_to_py(node: LeanExpr) -> PyExpr:
     if node is None:
         return PyName("Any")
-    if isinstance(node, LeanIdent):
-        name = node.name
-        if name in _LEAN_TYPE_TO_PY:
-            return _LEAN_TYPE_TO_PY[name]
-        return PyName(id=name)
-    elif isinstance(node, LeanApp):
-        if isinstance(node.func, LeanIdent):
-            base = node.func.name
-            arg = (
-                _lean_type_to_py(node.arg)
-                if not isinstance(node.arg, LeanHole)
-                else PyName("Any")
-            )
-            if base == "List":
-                return PySubscript(value=PyName("list"), slice=arg)
-            elif base == "Option":
-                return PySubscript(value=PyName("Optional"), slice=arg)
-            elif base == "HashMap":
-                return PySubscript(value=PyName("dict"), slice=PyName("Any"))
-            elif base == "Set":
-                return PySubscript(value=PyName("set"), slice=arg)
-            elif base == "Prod":
-                return PyTuple(elts=[PyName("Any"), PyName("Any")])
-            return PySubscript(value=PyName(base), slice=arg)
-        return PyName("Any")
-    elif isinstance(node, LeanTypeArrow):
-        from_type = (
-            _lean_type_to_py(node.from_type) if node.from_type else PyName("Any")
-        )
-        to_type = _lean_type_to_py(node.to_type) if node.to_type else PyName("Any")
-        return PyName("Any")
-    elif isinstance(node, LeanSort):
-        return PyName("Any")
-    elif isinstance(node, LeanHole):
-        return PyName("Any")
+    handler = _TYPE_TO_PY.get(type(node))
+    if handler:
+        return handler(node)
     return PyName("Any")

@@ -18,37 +18,80 @@ def _gen_module(node: LeanModule) -> str:
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------------------
+# Command dispatch
+# ---------------------------------------------------------------------------
+
+
+def _gen_cmd_Def(node: LeanDef, indent: int) -> str:
+    return _gen_def(node)
+
+
+def _gen_cmd_Open(node: LeanOpen, indent: int) -> str:
+    return f"open {' '.join(node.names)}"
+
+
+def _gen_cmd_Inductive(node: LeanInductive, indent: int) -> str:
+    return _gen_inductive(node)
+
+
+def _gen_cmd_Structure(node: LeanStructure, indent: int) -> str:
+    return _gen_structure(node)
+
+
+def _gen_cmd_Class(node: LeanClass, indent: int) -> str:
+    return _gen_class(node)
+
+
+def _gen_cmd_Instance(node: LeanInstance, indent: int) -> str:
+    return _gen_instance(node)
+
+
+def _gen_cmd_Axiom(node: LeanAxiom, indent: int) -> str:
+    params = _gen_params(node.params)
+    return f"axiom {node.name}{params} : {_gen_expr(node.type)}"
+
+
+def _gen_cmd_Example(node: LeanExample, indent: int) -> str:
+    return f"#eval {_gen_expr(node.expr)}"
+
+
+def _gen_cmd_Variable(node: LeanVariable, indent: int) -> str:
+    return f"variable {' '.join(_gen_param(p) for p in node.params)}"
+
+
+def _gen_cmd_Namespace(node: LeanNamespace, indent: int) -> str:
+    body = "\n".join(_gen_command(c, indent + 1) for c in node.commands)
+    return f"namespace {node.name}\n{body}\nend {node.name}"
+
+
+def _gen_cmd_Section(node: LeanSection, indent: int) -> str:
+    body = "\n".join(_gen_command(c, indent + 1) for c in node.commands)
+    params = (
+        (" " + " ".join(_gen_param(p) for p in node.params)) if node.params else ""
+    )
+    return f"section{params}\n{body}\nend"
+
+
+_CMD_GEN = {
+    LeanDef: _gen_cmd_Def,
+    LeanOpen: _gen_cmd_Open,
+    LeanInductive: _gen_cmd_Inductive,
+    LeanStructure: _gen_cmd_Structure,
+    LeanClass: _gen_cmd_Class,
+    LeanInstance: _gen_cmd_Instance,
+    LeanAxiom: _gen_cmd_Axiom,
+    LeanExample: _gen_cmd_Example,
+    LeanVariable: _gen_cmd_Variable,
+    LeanNamespace: _gen_cmd_Namespace,
+    LeanSection: _gen_cmd_Section,
+}
+
+
 def _gen_command(node: LeanCommand, indent: int) -> str:
-    i = "  " * indent
-    if isinstance(node, LeanDef):
-        return _gen_def(node)
-    elif isinstance(node, LeanOpen):
-        return f"open {' '.join(node.names)}"
-    elif isinstance(node, LeanInductive):
-        return _gen_inductive(node)
-    elif isinstance(node, LeanStructure):
-        return _gen_structure(node)
-    elif isinstance(node, LeanClass):
-        return _gen_class(node)
-    elif isinstance(node, LeanInstance):
-        return _gen_instance(node)
-    elif isinstance(node, LeanAxiom):
-        kw = "axiom"
-        params = _gen_params(node.params)
-        return f"{kw} {node.name}{params} : {_gen_expr(node.type)}"
-    elif isinstance(node, LeanExample):
-        return f"#eval {_gen_expr(node.expr)}"
-    elif isinstance(node, LeanVariable):
-        return f"variable {' '.join(_gen_param(p) for p in node.params)}"
-    elif isinstance(node, LeanNamespace):
-        body = "\n".join(_gen_command(c, indent + 1) for c in node.commands)
-        return f"namespace {node.name}\n{body}\nend {node.name}"
-    elif isinstance(node, LeanSection):
-        body = "\n".join(_gen_command(c, indent + 1) for c in node.commands)
-        params = (
-            (" " + " ".join(_gen_param(p) for p in node.params)) if node.params else ""
-        )
-        return f"section{params}\n{body}\nend"
+    handler = _CMD_GEN.get(type(node))
+    if handler is not None:
+        return handler(node, indent)
     raise ValueError(f"Unknown command: {type(node).__name__}")
 
 
@@ -122,129 +165,234 @@ def _gen_param(p: LeanParam) -> str:
     return p.name
 
 
-def _gen_expr(node: LeanExpr) -> str:
+# ---------------------------------------------------------------------------
+# Expression dispatch
+# ---------------------------------------------------------------------------
+
+
+def _needs_parens(n: LeanExpr) -> bool:
+    return isinstance(
+        n,
+        (
+            LeanApp,
+            LeanBinOp,
+            LeanUnaryOp,
+            LeanLambda,
+            LeanIf,
+            LeanMatch,
+            LeanLet,
+            LeanTypeArrow,
+            LeanTypeSpec,
+        ),
+    )
+
+
+def _gen_expr_Ident(node: LeanExpr, parent_prec: int = 0) -> str:
+    return node.name
+
+
+def _gen_expr_Num(node: LeanExpr, parent_prec: int = 0) -> str:
+    return str(node.value)
+
+
+def _gen_expr_Float(node: LeanExpr, parent_prec: int = 0) -> str:
+    return str(node.value)
+
+
+def _gen_expr_String(node: LeanExpr, parent_prec: int = 0) -> str:
+    return repr(node.value)
+
+
+def _gen_expr_Char(node: LeanExpr, parent_prec: int = 0) -> str:
+    return repr(node.value)
+
+
+def _gen_expr_Bool(node: LeanExpr, parent_prec: int = 0) -> str:
+    return "true" if node.value else "false"
+
+
+def _gen_expr_Unit(node: LeanExpr, parent_prec: int = 0) -> str:
+    return "()"
+
+
+def _gen_expr_Hole(node: LeanExpr, parent_prec: int = 0) -> str:
+    return "_"
+
+
+def _gen_expr_Sort(node: LeanExpr, parent_prec: int = 0) -> str:
+    if node.level is not None:
+        return f"Type {node.level}"
+    return "Type"
+
+
+def _gen_expr_App(node: LeanExpr, parent_prec: int = 0) -> str:
+    func_str = _gen_expr(node.func)
+    arg_str = _gen_expr(node.arg)
+    if _needs_parens(node.arg):
+        arg_str = f"({arg_str})"
+    if _needs_parens(node.func):
+        func_str = f"({func_str})"
+    return f"{func_str} {arg_str}"
+
+
+def _gen_expr_BinOp(node: LeanExpr, parent_prec: int = 0) -> str:
+    return f"{_gen_expr(node.left)} {node.op} {_gen_expr(node.right)}"
+
+
+def _gen_expr_UnaryOp(node: LeanExpr, parent_prec: int = 0) -> str:
+    return f"{node.op}{_gen_expr(node.operand)}"
+
+
+def _gen_expr_TypeArrow(node: LeanExpr, parent_prec: int = 0) -> str:
+    return f"({_gen_expr(node.from_type)} → {_gen_expr(node.to_type)})"
+
+
+def _gen_expr_TypeSpec(node: LeanExpr, parent_prec: int = 0) -> str:
+    return f"({_gen_expr(node.expr)} : {_gen_expr(node.type)})"
+
+
+def _gen_expr_Lambda(node: LeanExpr, parent_prec: int = 0) -> str:
+    params = " ".join(_gen_param(p) for p in node.params)
+    return f"fun {params} => {_gen_expr(node.body)}"
+
+
+def _gen_expr_Forall(node: LeanExpr, parent_prec: int = 0) -> str:
+    params = " ".join(
+        f"({p.name} : {_gen_expr(p.type)})" if p.type else p.name
+        for p in node.params
+    )
+    return f"∀ {params}, {_gen_expr(node.body)}"
+
+
+def _gen_expr_Pi(node: LeanExpr, parent_prec: int = 0) -> str:
+    binder = _gen_param(node.binder)
+    return f"({binder}) → {_gen_expr(node.body)}"
+
+
+def _gen_expr_ListLit(node: LeanExpr, parent_prec: int = 0) -> str:
+    return f"[{', '.join(_gen_expr(e) for e in node.elts)}]"
+
+
+def _gen_expr_TupleLit(node: LeanExpr, parent_prec: int = 0) -> str:
+    return f"({', '.join(_gen_expr(e) for e in node.elts)})"
+
+
+def _gen_expr_StructInst(node: LeanExpr, parent_prec: int = 0) -> str:
+    fields = ", ".join(f"{n} := {_gen_expr(v)}" for n, v in node.fields)
+    return (
+        f"{{ {node.struct_name} with {fields} }}"
+        if node.fields
+        else f"{{ {node.struct_name} }}"
+    )
+
+
+def _gen_expr_Proj(node: LeanExpr, parent_prec: int = 0) -> str:
+    return f"{_gen_expr(node.expr)}.{node.field}"
+
+
+def _gen_expr_Match(node: LeanExpr, parent_prec: int = 0) -> str:
+    arms = "\n    ".join(
+        f"| {_gen_pattern(arm.pattern)} => {_gen_expr(arm.rhs)}"
+        for arm in node.arms
+    )
+    return f"match {_gen_expr(node.expr)} with\n    {arms}"
+
+
+def _gen_expr_If(node: LeanExpr, parent_prec: int = 0) -> str:
+    result = f"if {_gen_expr(node.cond)} then {_gen_expr(node.then_expr)}"
+    if node.else_expr:
+        result += f" else {_gen_expr(node.else_expr)}"
+    return result
+
+
+def _gen_expr_Let(node: LeanExpr, parent_prec: int = 0) -> str:
+    params = _gen_params(node.params)
+    typ = f" : {_gen_expr(node.type)}" if node.type else ""
+    val = _gen_expr(node.value)
+    return f"let {node.name}{params}{typ} := {val} in {_gen_expr(node.body)}"
+
+
+def _gen_expr_Have(node: LeanExpr, parent_prec: int = 0) -> str:
+    name = f" {node.name} :" if node.name else " "
+    return f"have{name}{_gen_expr(node.type)} := {_gen_expr(node.value)}; {_gen_expr(node.body)}"
+
+
+def _gen_expr_Show(node: LeanExpr, parent_prec: int = 0) -> str:
+    return f"show {_gen_expr(node.type)} from {_gen_expr(node.value)}"
+
+
+def _gen_expr_Calc(node: LeanExpr, parent_prec: int = 0) -> str:
+    steps = "\n    ".join(
+        f"{_gen_expr(s.relation)} := {_gen_expr(s.value)}" for s in node.steps
+    )
+    return f"calc\n    {steps}"
+
+
+def _gen_expr_Do(node: LeanExpr, parent_prec: int = 0) -> str:
+    stmts_str = ";\n    ".join(_gen_do_stmt(s) for s in node.stmts)
+    last_str = _gen_expr(node.last) if node.last else ""
+    if stmts_str and last_str:
+        return f"do\n    {stmts_str};\n    {last_str}"
+    elif stmts_str:
+        return f"do\n    {stmts_str}"
+    elif last_str:
+        return f"do\n    {last_str}"
+    return "do"
+
+
+def _gen_expr_By(node: LeanExpr, parent_prec: int = 0) -> str:
+    return f"by {_gen_expr(node.tactic)}"
+
+
+def _gen_expr_Parenthesized(node: LeanExpr, parent_prec: int = 0) -> str:
+    return f"({_gen_expr(node.expr)})"
+
+
+def _gen_expr_NamedArg(node: LeanExpr, parent_prec: int = 0) -> str:
+    return f"{node.name} := {_gen_expr(node.value)}"
+
+
+_EXPR_GEN_LEAN = {
+    LeanIdent: _gen_expr_Ident,
+    LeanNum: _gen_expr_Num,
+    LeanFloat: _gen_expr_Float,
+    LeanString: _gen_expr_String,
+    LeanChar: _gen_expr_Char,
+    LeanBool: _gen_expr_Bool,
+    LeanUnit: _gen_expr_Unit,
+    LeanHole: _gen_expr_Hole,
+    LeanSort: _gen_expr_Sort,
+    LeanApp: _gen_expr_App,
+    LeanBinOp: _gen_expr_BinOp,
+    LeanUnaryOp: _gen_expr_UnaryOp,
+    LeanTypeArrow: _gen_expr_TypeArrow,
+    LeanTypeSpec: _gen_expr_TypeSpec,
+    LeanLambda: _gen_expr_Lambda,
+    LeanForall: _gen_expr_Forall,
+    LeanPi: _gen_expr_Pi,
+    LeanListLit: _gen_expr_ListLit,
+    LeanTupleLit: _gen_expr_TupleLit,
+    LeanStructInst: _gen_expr_StructInst,
+    LeanProj: _gen_expr_Proj,
+    LeanMatch: _gen_expr_Match,
+    LeanIf: _gen_expr_If,
+    LeanLet: _gen_expr_Let,
+    LeanHave: _gen_expr_Have,
+    LeanShow: _gen_expr_Show,
+    LeanCalc: _gen_expr_Calc,
+    LeanDo: _gen_expr_Do,
+    LeanBy: _gen_expr_By,
+    LeanParenthesized: _gen_expr_Parenthesized,
+    LeanNamedArg: _gen_expr_NamedArg,
+}
+
+
+def _gen_expr(node: LeanExpr, parent_prec: int = 0) -> str:
     if node is None:
         return "_"
-    if isinstance(node, LeanIdent):
-        return node.name
-    elif isinstance(node, LeanNum):
-        return str(node.value)
-    elif isinstance(node, LeanFloat):
-        return str(node.value)
-    elif isinstance(node, LeanString):
-        return repr(node.value)
-    elif isinstance(node, LeanChar):
-        return repr(node.value)
-    elif isinstance(node, LeanBool):
-        return "true" if node.value else "false"
-    elif isinstance(node, LeanUnit):
-        return "()"
-    elif isinstance(node, LeanHole):
-        return "_"
-    elif isinstance(node, LeanSort):
-        if node.level is not None:
-            return f"Type {node.level}"
-        return "Type"
-    elif isinstance(node, LeanApp):
-
-        def needs_parens(n: LeanExpr) -> bool:
-            return isinstance(
-                n,
-                (
-                    LeanApp,
-                    LeanBinOp,
-                    LeanUnaryOp,
-                    LeanLambda,
-                    LeanIf,
-                    LeanMatch,
-                    LeanLet,
-                    LeanTypeArrow,
-                    LeanTypeSpec,
-                ),
-            )
-
-        func_str = _gen_expr(node.func)
-        arg_str = _gen_expr(node.arg)
-        if needs_parens(node.arg):
-            arg_str = f"({arg_str})"
-        if needs_parens(node.func):
-            func_str = f"({func_str})"
-        return f"{func_str} {arg_str}"
-    elif isinstance(node, LeanBinOp):
-        return f"{_gen_expr(node.left)} {node.op} {_gen_expr(node.right)}"
-    elif isinstance(node, LeanUnaryOp):
-        return f"{node.op}{_gen_expr(node.operand)}"
-    elif isinstance(node, LeanTypeArrow):
-        return f"({_gen_expr(node.from_type)} → {_gen_expr(node.to_type)})"
-    elif isinstance(node, LeanTypeSpec):
-        return f"({_gen_expr(node.expr)} : {_gen_expr(node.type)})"
-    elif isinstance(node, LeanLambda):
-        params = " ".join(_gen_param(p) for p in node.params)
-        return f"fun {params} => {_gen_expr(node.body)}"
-    elif isinstance(node, LeanForall):
-        params = " ".join(
-            f"({p.name} : {_gen_expr(p.type)})" if p.type else p.name
-            for p in node.params
-        )
-        return f"∀ {params}, {_gen_expr(node.body)}"
-    elif isinstance(node, LeanPi):
-        binder = _gen_param(node.binder)
-        return f"({binder}) → {_gen_expr(node.body)}"
-    elif isinstance(node, LeanListLit):
-        return f"[{', '.join(_gen_expr(e) for e in node.elts)}]"
-    elif isinstance(node, LeanTupleLit):
-        return f"({', '.join(_gen_expr(e) for e in node.elts)})"
-    elif isinstance(node, LeanStructInst):
-        fields = ", ".join(f"{n} := {_gen_expr(v)}" for n, v in node.fields)
-        return (
-            f"{{ {node.struct_name} with {fields} }}"
-            if node.fields
-            else f"{{ {node.struct_name} }}"
-        )
-    elif isinstance(node, LeanProj):
-        return f"{_gen_expr(node.expr)}.{node.field}"
-    elif isinstance(node, LeanMatch):
-        arms = "\n    ".join(
-            f"| {_gen_pattern(arm.pattern)} => {_gen_expr(arm.rhs)}"
-            for arm in node.arms
-        )
-        return f"match {_gen_expr(node.expr)} with\n    {arms}"
-    elif isinstance(node, LeanIf):
-        result = f"if {_gen_expr(node.cond)} then {_gen_expr(node.then_expr)}"
-        if node.else_expr:
-            result += f" else {_gen_expr(node.else_expr)}"
-        return result
-    elif isinstance(node, LeanLet):
-        params = _gen_params(node.params)
-        typ = f" : {_gen_expr(node.type)}" if node.type else ""
-        val = _gen_expr(node.value)
-        return f"let {node.name}{params}{typ} := {val} in {_gen_expr(node.body)}"
-    elif isinstance(node, LeanHave):
-        name = f" {node.name} :" if node.name else " "
-        return f"have{name}{_gen_expr(node.type)} := {_gen_expr(node.value)}; {_gen_expr(node.body)}"
-    elif isinstance(node, LeanShow):
-        return f"show {_gen_expr(node.type)} from {_gen_expr(node.value)}"
-    elif isinstance(node, LeanCalc):
-        steps = "\n    ".join(
-            f"{_gen_expr(s.relation)} := {_gen_expr(s.value)}" for s in node.steps
-        )
-        return f"calc\n    {steps}"
-    elif isinstance(node, LeanDo):
-        stmts_str = ";\n    ".join(_gen_do_stmt(s) for s in node.stmts)
-        last_str = _gen_expr(node.last) if node.last else ""
-        if stmts_str and last_str:
-            return f"do\n    {stmts_str};\n    {last_str}"
-        elif stmts_str:
-            return f"do\n    {stmts_str}"
-        elif last_str:
-            return f"do\n    {last_str}"
-        return "do"
-    elif isinstance(node, LeanBy):
-        return f"by {_gen_expr(node.tactic)}"
-    elif isinstance(node, LeanParenthesized):
-        return f"({_gen_expr(node.expr)})"
-    elif isinstance(node, LeanNamedArg):
-        return f"{node.name} := {_gen_expr(node.value)}"
+    handler = _EXPR_GEN_LEAN.get(type(node))
+    if handler is not None:
+        return handler(node, parent_prec)
     raise ValueError(f"Unknown expression: {type(node).__name__}")
 
 

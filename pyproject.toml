@@ -59,6 +59,7 @@ ignore = ["E501", "F405"]
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
+"lean4_codegen.py" = ["ARG001", "N802"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

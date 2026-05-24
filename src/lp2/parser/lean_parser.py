@@ -28,7 +28,6 @@ PRECEDENCE = {
 }
 
 
-PREFIX_KW = {"FUN", "FORALL", "MATCH", "IF", "LET", "HAVE", "SHOW", "CALC", "DO"}
 BINARY_OPS = {
     "PLUS": "+",
     "MINUS": "-",
@@ -87,60 +86,43 @@ class LeanParser:
 
     # ---- Top Level ----
 
+    _MODULE_DISPATCH = {
+        "OPEN": "_parse_open",
+        "DEF": "_parse_def",
+        "THEOREM": "_parse_def",
+        "LEMMA": "_parse_def",
+        "INDUCTIVE": "_parse_inductive",
+        "STRUCTURE": "_parse_structure",
+        "CLASS": "_parse_class",
+        "INSTANCE": "_parse_instance",
+        "AXIOM": "_parse_axiom",
+        "EXAMPLE": "_parse_example",
+        "NAMESPACE": "_parse_namespace",
+        "SECTION": "_parse_section",
+        "VARIABLE": "_parse_variable",
+    }
+
     def parse_module(self) -> LeanModule:
-        imports = []
-        body = []
+        imports: list[LeanOpen] = []
+        body: list[LeanNode] = []
         while self._peek().kind != "EOF":
-            if self._peek().kind == "OPEN":
-                open_cmd = self._parse_open()
-                body.append(open_cmd)
-            elif self._peek().kind in ("DEF", "THEOREM", "LEMMA"):
-                body.append(self._parse_def())
-            elif self._peek().kind == "INDUCTIVE":
-                body.append(self._parse_inductive())
-            elif self._peek().kind == "STRUCTURE":
-                body.append(self._parse_structure())
-            elif self._peek().kind == "CLASS":
-                body.append(self._parse_class())
-            elif self._peek().kind == "INSTANCE":
-                body.append(self._parse_instance())
-            elif self._peek().kind == "AXIOM":
-                body.append(self._parse_axiom())
-            elif self._peek().kind == "EXAMPLE":
-                body.append(self._parse_example())
-            elif self._peek().kind == "NAMESPACE":
-                body.append(self._parse_namespace())
-            elif self._peek().kind == "SECTION":
-                body.append(self._parse_section())
-            elif self._peek().kind == "VARIABLE":
-                body.append(self._parse_variable())
-            elif self._peek().kind == "HASH_EVAL" or self._peek().kind == "HASH_CHECK":
+            kind = self._peek().kind
+            handler = self._MODULE_DISPATCH.get(kind)
+            if handler is not None:
+                body.append(getattr(self, handler)())
+            elif kind in ("HASH_EVAL", "HASH_CHECK"):
                 self._advance()
                 body.append(LeanExample(expr=self._parse_expr()))
             else:
                 try:
                     body.append(self._parse_def())
                 except SyntaxError:
-                    self._skip_to(
-                        {
-                            "EOF",
-                            "DEF",
-                            "THEOREM",
-                            "LEMMA",
-                            "INDUCTIVE",
-                            "STRUCTURE",
-                            "CLASS",
-                            "INSTANCE",
-                            "AXIOM",
-                            "EXAMPLE",
-                            "NAMESPACE",
-                            "SECTION",
-                            "OPEN",
-                            "VARIABLE",
-                            "HASH_EVAL",
-                            "HASH_CHECK",
-                        }
-                    )
+                    self._skip_to({
+                        "EOF", "DEF", "THEOREM", "LEMMA", "INDUCTIVE",
+                        "STRUCTURE", "CLASS", "INSTANCE", "AXIOM",
+                        "EXAMPLE", "NAMESPACE", "SECTION", "OPEN",
+                        "VARIABLE", "HASH_EVAL", "HASH_CHECK",
+                    })
         return LeanModule(imports=imports, body=body)
 
     def _parse_def(self) -> LeanDef:
@@ -398,6 +380,19 @@ class LeanParser:
 
     # ---- Expression Parsing (Pratt-style) ----
 
+    _TOK_IS_ATOM = frozenset({
+        "ID", "NUM", "STR", "BOOL", "FLOAT", "CHAR",
+        "LPAREN", "LBRACK", "LBRACE", "WILD",
+    })
+
+    def _handle_binop(self, lhs: LeanExpr, prec: int, op: str) -> LeanExpr:
+        rhs = self._parse_expr(prec)
+        if op == "→":
+            return LeanTypeArrow(from_type=lhs, to_type=rhs)
+        if op == ":":
+            return LeanTypeSpec(expr=lhs, type=rhs)
+        return LeanBinOp(left=lhs, op=op, right=rhs)
+
     def _parse_expr(self, min_prec: int = 0) -> LeanExpr:
         lhs = self._parse_prefix()
         if lhs is None:
@@ -408,149 +403,139 @@ class LeanParser:
 
         while True:
             tok = self._peek()
-            if tok.kind in BINARY_OPS and PRECEDENCE.get(tok.kind, 0) >= min_prec:
-                prec = PRECEDENCE[tok.kind]
-                op = BINARY_OPS[tok.kind]
+            kind = tok.kind
+            if kind in BINARY_OPS and PRECEDENCE.get(kind, 0) >= min_prec:
+                op = BINARY_OPS[kind]
+                prec = PRECEDENCE[kind]
                 self._advance()
-                if op == "→" and tok.kind == "RARROW":
-                    rhs = self._parse_expr(prec)
-                    lhs = LeanTypeArrow(from_type=lhs, to_type=rhs)
-                elif op == ":":
-                    rhs = self._parse_expr(prec)
-                    lhs = LeanTypeSpec(expr=lhs, type=rhs)
-                elif op in ("=", "<", ">", "::", "&&", "||", "|>"):
-                    rhs = self._parse_expr(prec)
-                    lhs = LeanBinOp(left=lhs, op=op, right=rhs)
-                else:
-                    rhs = self._parse_expr(prec)
-                    lhs = LeanBinOp(left=lhs, op=op, right=rhs)
-            elif tok.kind == "DOT":
+                lhs = self._handle_binop(lhs, prec, op)
+            elif kind == "DOT":
                 self._advance()
-                field = self._expect("ID").value
-                lhs = LeanProj(expr=lhs, field=field)
-            elif (
-                tok.kind == "ID"
-                or tok.kind == "NUM"
-                or tok.kind == "STR"
-                or tok.kind == "BOOL"
-                or tok.kind == "FLOAT"
-                or tok.kind == "CHAR"
-                or tok.kind == "LPAREN"
-                or tok.kind == "LBRACK"
-                or tok.kind == "LBRACE"
-                or tok.kind == "WILD"
-            ):
-                if PRECEDENCE.get("APP", 13) >= min_prec:
-                    lhs = LeanApp(func=lhs, arg=self._parse_prefix())
-                else:
-                    break
-            elif tok.kind == "DOT" and self._peek(1) and self._peek(2):
-                pass
+                lhs = LeanProj(expr=lhs, field=self._expect("ID").value)
+            elif kind in self._TOK_IS_ATOM and PRECEDENCE.get("APP", 13) >= min_prec:
+                lhs = LeanApp(func=lhs, arg=self._parse_prefix())
             else:
                 break
 
         return lhs
 
-    def _parse_prefix(self) -> Optional[LeanExpr]:
-        tok = self._peek()
+    def _pid(self) -> LeanExpr:
+        return LeanIdent(name=self._advance().value)
 
-        if tok.kind == "ID":
-            return LeanIdent(name=self._advance().value)
-        elif tok.kind == "NUM":
-            n_val = int(self._advance().value)
-            return LeanNum(value=n_val, is_nat=n_val >= 0)
-        elif tok.kind == "FLOAT":
-            f_val = float(self._advance().value)
-            return LeanFloat(value=f_val)
-        elif tok.kind == "STR":
-            return LeanString(value=self._advance().value)
-        elif tok.kind == "CHAR":
-            return LeanChar(value=self._advance().value)
-        elif tok.kind == "BOOL":
-            v = self._advance().value == "true"
-            return LeanBool(value=v)
-        elif tok.kind == "WILD":
+    def _pnum(self) -> LeanExpr:
+        n_val = int(self._advance().value)
+        return LeanNum(value=n_val, is_nat=n_val >= 0)
+
+    def _pfloat(self) -> LeanExpr:
+        return LeanFloat(value=float(self._advance().value))
+
+    def _pstr(self) -> LeanExpr:
+        return LeanString(value=self._advance().value)
+
+    def _pchar(self) -> LeanExpr:
+        return LeanChar(value=self._advance().value)
+
+    def _pbool(self) -> LeanExpr:
+        return LeanBool(value=self._advance().value == "true")
+
+    def _pwild(self) -> LeanExpr:
+        self._advance()
+        return LeanHole()
+
+    def _plparen(self) -> LeanExpr:
+        self._advance()
+        if self._peek().kind == "RPAREN":
             self._advance()
-            return LeanHole()
-        elif tok.kind == "LPAREN":
-            self._advance()
-            if self._peek().kind == "RPAREN":
-                self._advance()
-                return LeanUnit()
-            if self._maybe("COLON"):
-                typ = self._parse_expr()
-                if self._maybe("RPAREN"):
-                    return LeanTypeSpec(expr=LeanHole(), type=typ)
-                self._expect("RPAREN")
-            expr = self._parse_expr()
-            while self._maybe("COMMA"):
-                elts = [expr]
-                elts.append(self._parse_expr())
-                while self._maybe("COMMA"):
-                    elts.append(self._parse_expr())
-                self._expect("RPAREN")
-                return LeanTupleLit(elts=elts)
-            if self._maybe("COLON"):
-                typ = self._parse_expr()
-                expr = LeanTypeSpec(expr=expr, type=typ)
+            return LeanUnit()
+        if self._maybe("COLON"):
+            typ = self._parse_expr()
+            if self._maybe("RPAREN"):
+                return LeanTypeSpec(expr=LeanHole(), type=typ)
             self._expect("RPAREN")
-            return expr
-        elif tok.kind == "LBRACK":
-            self._advance()
-            elts = []
-            if self._peek().kind != "RBRACK":
+        expr = self._parse_expr()
+        while self._maybe("COMMA"):
+            elts = [expr]
+            elts.append(self._parse_expr())
+            while self._maybe("COMMA"):
                 elts.append(self._parse_expr())
-                while self._maybe("COMMA"):
-                    elts.append(self._parse_expr())
-            self._expect("RBRACK")
-            return LeanListLit(elts=elts)
-        elif tok.kind == "LBRACE":
+            self._expect("RPAREN")
+            return LeanTupleLit(elts=elts)
+        if self._maybe("COLON"):
+            typ = self._parse_expr()
+            expr = LeanTypeSpec(expr=expr, type=typ)
+        self._expect("RPAREN")
+        return expr
+
+    def _plbrack(self) -> LeanExpr:
+        self._advance()
+        elts = []
+        if self._peek().kind != "RBRACK":
+            elts.append(self._parse_expr())
+            while self._maybe("COMMA"):
+                elts.append(self._parse_expr())
+        self._expect("RBRACK")
+        return LeanListLit(elts=elts)
+
+    def _plbrace(self) -> LeanExpr:
+        self._advance()
+        if self._peek().kind == "RBRACE":
             self._advance()
-            if self._peek().kind == "RBRACE":
-                self._advance()
-                return LeanUnit()
-            if self._peek().kind == "ID" and self._peek(1).kind == "COLONEQ":
-                return self._parse_struct_inst()
-            expr = self._parse_expr()
-            if self._maybe("COMMA"):
-                return self._parse_tuple_rest(expr)
-            self._expect("RBRACE")
-            return expr
-        elif tok.kind == "FUN":
-            return self._parse_lambda()
-        elif tok.kind == "FORALL":
-            return self._parse_forall()
-        elif tok.kind == "MATCH":
-            return self._parse_match()
-        elif tok.kind == "IF":
-            return self._parse_if()
-        elif tok.kind == "LET":
-            return self._parse_let()
-        elif tok.kind == "HAVE":
-            return self._parse_have()
-        elif tok.kind == "SHOW":
-            return self._parse_show()
-        elif tok.kind == "CALC":
-            return self._parse_calc()
-        elif tok.kind == "DO":
-            return self._parse_do()
-        elif tok.kind == "MINUS":
-            self._advance()
-            return LeanUnaryOp(
-                op="-", operand=self._parse_expr(PRECEDENCE.get("MINUS", 8))
-            )
-        elif tok.kind == "BANG":
-            self._advance()
-            return LeanUnaryOp(
-                op="¬", operand=self._parse_expr(PRECEDENCE.get("BANG", 11))
-            )
-        elif tok.kind == "DOT":
-            self._advance()
-            field = self._expect("ID").value
-            return LeanProj(expr=LeanHole(), field=field)
-        elif tok.kind == "HASH_EVAL" or tok.kind == "HASH_CHECK":
-            self._advance()
-            return self._parse_expr()
+            return LeanUnit()
+        if self._peek().kind == "ID" and self._peek(1).kind == "COLONEQ":
+            return self._parse_struct_inst()
+        expr = self._parse_expr()
+        if self._maybe("COMMA"):
+            return self._parse_tuple_rest(expr)
+        self._expect("RBRACE")
+        return expr
+
+    def _pminus(self) -> LeanExpr:
+        self._advance()
+        return LeanUnaryOp(op="-", operand=self._parse_expr(PRECEDENCE.get("MINUS", 8)))
+
+    def _pbang(self) -> LeanExpr:
+        self._advance()
+        return LeanUnaryOp(op="¬", operand=self._parse_expr(PRECEDENCE.get("BANG", 11)))
+
+    def _pdot(self) -> LeanExpr:
+        self._advance()
+        return LeanProj(expr=LeanHole(), field=self._expect("ID").value)
+
+    def _phash(self) -> LeanExpr:
+        self._advance()
+        return self._parse_expr()
+
+    _PREFIX_DISPATCH = {
+        "ID": "_pid",
+        "NUM": "_pnum",
+        "FLOAT": "_pfloat",
+        "STR": "_pstr",
+        "CHAR": "_pchar",
+        "BOOL": "_pbool",
+        "WILD": "_pwild",
+        "LPAREN": "_plparen",
+        "LBRACK": "_plbrack",
+        "LBRACE": "_plbrace",
+        "FUN": "_parse_lambda",
+        "FORALL": "_parse_forall",
+        "MATCH": "_parse_match",
+        "IF": "_parse_if",
+        "LET": "_parse_let",
+        "HAVE": "_parse_have",
+        "SHOW": "_parse_show",
+        "CALC": "_parse_calc",
+        "DO": "_parse_do",
+        "MINUS": "_pminus",
+        "BANG": "_pbang",
+        "DOT": "_pdot",
+        "HASH_EVAL": "_phash",
+        "HASH_CHECK": "_phash",
+    }
+
+    def _parse_prefix(self) -> Optional[LeanExpr]:
+        handler = self._PREFIX_DISPATCH.get(self._peek().kind)
+        if handler is not None:
+            return getattr(self, handler)()
         return None
 
     def _parse_struct_inst(self) -> LeanStructInst:
@@ -784,49 +769,69 @@ class LeanParser:
             return LeanPatternOr(patterns=patterns)
         return left
 
+    def _ppat_wild(self) -> LeanPattern:
+        self._advance()
+        return LeanPatternWild()
+
+    def _ppat_num(self) -> LeanPattern:
+        return LeanPatternNum(value=int(self._advance().value))
+
+    def _ppat_bool(self) -> LeanPattern:
+        val = self._advance().value == "true"
+        return LeanPatternCtor(name="true" if val else "false", patterns=[])
+
+    def _ppat_id(self) -> LeanPattern:
+        name = self._advance().value
+        if self._peek().kind == "LPAREN":
+            self._advance()
+            sub_patterns = []
+            if self._peek().kind != "RPAREN":
+                sub_patterns.append(self._parse_pattern())
+                while self._maybe("COMMA"):
+                    sub_patterns.append(self._parse_pattern())
+            self._expect("RPAREN")
+            return LeanPatternCtor(name=name, patterns=sub_patterns)
+        elif self._peek().kind == "LBRACK":
+            self._advance()
+            sub_patterns = []
+            if self._peek().kind != "RBRACK":
+                sub_patterns.append(self._parse_pattern())
+                while self._maybe("COMMA"):
+                    sub_patterns.append(self._parse_pattern())
+            self._expect("RBRACK")
+            return LeanPatternCtor(name=name, patterns=sub_patterns)
+        return LeanPatternIdent(name=name)
+
+    def _ppat_lparen(self) -> LeanPattern:
+        self._advance()
+        if self._peek().kind == "RPAREN":
+            self._advance()
+            return LeanPatternCtor(name="Unit.unit", patterns=[])
+        pat = self._parse_pattern()
+        self._expect("RPAREN")
+        return pat
+
+    def _ppat_str(self) -> LeanPattern:
+        return LeanPatternCtor(name=self._advance().value, patterns=[])
+
+    def _ppat_char(self) -> LeanPattern:
+        return LeanPatternCtor(name=self._advance().value, patterns=[])
+
+    _PATTERN_DISPATCH = {
+        "WILD": "_ppat_wild",
+        "NUM": "_ppat_num",
+        "BOOL": "_ppat_bool",
+        "ID": "_ppat_id",
+        "LPAREN": "_ppat_lparen",
+        "STR": "_ppat_str",
+        "CHAR": "_ppat_char",
+    }
+
     def _parse_pattern_atom(self) -> LeanPattern:
         tok = self._peek()
-        if tok.kind == "WILD":
-            self._advance()
-            return LeanPatternWild()
-        elif tok.kind == "NUM":
-            return LeanPatternNum(value=int(self._advance().value))
-        elif tok.kind == "BOOL":
-            val = self._advance().value == "true"
-            return LeanPatternCtor(name="true" if val else "false", patterns=[])
-        elif tok.kind == "ID":
-            name = self._advance().value
-            if self._peek().kind == "LPAREN":
-                self._advance()
-                sub_patterns = []
-                if self._peek().kind != "RPAREN":
-                    sub_patterns.append(self._parse_pattern())
-                    while self._maybe("COMMA"):
-                        sub_patterns.append(self._parse_pattern())
-                self._expect("RPAREN")
-                return LeanPatternCtor(name=name, patterns=sub_patterns)
-            elif self._peek().kind == "LBRACK":
-                self._advance()
-                sub_patterns = []
-                if self._peek().kind != "RBRACK":
-                    sub_patterns.append(self._parse_pattern())
-                    while self._maybe("COMMA"):
-                        sub_patterns.append(self._parse_pattern())
-                self._expect("RBRACK")
-                return LeanPatternCtor(name=name, patterns=sub_patterns)
-            return LeanPatternIdent(name=name)
-        elif tok.kind == "LPAREN":
-            self._advance()
-            if self._peek().kind == "RPAREN":
-                self._advance()
-                return LeanPatternCtor(name="Unit.unit", patterns=[])
-            pat = self._parse_pattern()
-            self._expect("RPAREN")
-            return pat
-        elif tok.kind == "STR":
-            return LeanPatternCtor(name=self._advance().value, patterns=[])
-        elif tok.kind == "CHAR":
-            return LeanPatternCtor(name=self._advance().value, patterns=[])
+        handler = self._PATTERN_DISPATCH.get(tok.kind)
+        if handler is not None:
+            return getattr(self, handler)()
         raise SyntaxError(f"Unexpected token in pattern: {tok}")
 
     # ---- Tactics ----
