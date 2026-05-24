@@ -301,3 +301,201 @@ class TestPropertySurvival:
     def test_lean_survives(self, code):
         result = lean_to_py(code)
         assert result
+
+
+# ---------------------------------------------------------------------------
+# Injection / escaping in string literals
+# ---------------------------------------------------------------------------
+
+class TestStringInjection:
+    """Strings with unusual content that could break codegen."""
+
+    def test_string_with_backslash_sequences(self):
+        src = 'def f() -> str:\n    return "newline\\\\ntab\\\\tquote\\\\\\""\n'
+        result = py_to_lean(src)
+        assert result
+
+    def test_string_with_quotes(self):
+        src = """def f() -> str:\n    return "he said \\"hello\\""\n"""
+        result = py_to_lean(src)
+        assert result
+
+
+# ---------------------------------------------------------------------------
+# Deep nesting (recursion-limit proximity)
+# ---------------------------------------------------------------------------
+
+class TestDeepNestingStress:
+    """Near-limits nesting to stress recursion in parse/transpile."""
+
+    def test_very_deep_binop_left(self):
+        """Left-deep binary tree: ((((x + 1) + 1) + 1) ...)."""
+        s = "x"
+        for _ in range(100):
+            s = f"({s} + 1)"
+        src = f"def f(x: int) -> int:\n    return {s}\n"
+        result = py_to_lean(src)
+        assert result
+
+    def test_very_deep_lambda_nesting(self):
+        """Lambdas nested N deep: lambda a: lambda b: ... : body."""
+        s = "0"
+        for _ in range(20):
+            s = f"(lambda _: {s})"
+        src = f"def f() -> int:\n    return {s}\n"
+        result = py_to_lean(src)
+        assert result
+
+    def test_lean_deep_binop_left(self):
+        """Left-deep Lean binary tree."""
+        s = "x"
+        for _ in range(50):
+            s = f"({s} + 1)"
+        src = f"def f (x : Int) : Int := {s}\n"
+        result = lean_to_py(src)
+        assert result
+
+    def test_lean_chained_let(self):
+        """Multiple let-bindings in sequence."""
+        src = "def f (x : Int) : Int :=\n  let a := x + 1;\n  let b := a * 2;\n  let c := b - 3;\n  c\n"
+        result = lean_to_py(src)
+        assert result
+
+
+# ---------------------------------------------------------------------------
+# Walrus operator (assignment expressions)
+# ---------------------------------------------------------------------------
+
+class TestWalrusEdgeCases:
+    """Walrus operator (:=) in various positions."""
+
+    def test_walrus_in_if(self):
+        src = "def f(x: int) -> bool:\n    return (y := x + 1) > 0\n"
+        result = py_to_lean(src)
+        assert result
+
+    def test_walrus_in_list(self):
+        src = "def f() -> list:\n    return [(a := 1), a + 2]\n"
+        result = py_to_lean(src)
+        assert result
+
+
+# ---------------------------------------------------------------------------
+# Named arguments (Lean → Python)
+# ---------------------------------------------------------------------------
+
+class TestLeanNamedArgs:
+    """Named arguments in function calls."""
+
+    @pytest.mark.xfail(reason="Lean parser does not support named args (x := val) syntax", strict=True)
+    def test_single_named_arg(self):
+        src = "def f : Int := g (x := 42)\n"
+        result = lean_to_py(src)
+        assert result
+
+    @pytest.mark.xfail(reason="Lean parser does not support named args (x := val) syntax", strict=True)
+    def test_mixed_named_positional(self):
+        src = "def f : Int := g 1 (x := 2) (y := 3)\n"
+        result = lean_to_py(src)
+        assert result
+
+
+# ---------------------------------------------------------------------------
+# Unicode / special identifiers
+# ---------------------------------------------------------------------------
+
+class TestUnicodeStress:
+    """Unicode identifiers and edge cases."""
+
+    def test_unicode_math_symbols(self):
+        src = "def f(α: int, β: int) -> int:\n    return α + β\n"
+        result = py_to_lean(src)
+        assert "α" in result or "+" in result
+
+    def test_lean_unicode_idents(self):
+        result = lean_to_py("def ταχ (x : Int) : Int := x\n")
+        assert result
+
+    def test_emoji_in_comment(self):
+        """Emoji in comments must not crash lexer/parser."""
+        result = py_to_lean("# this is 🔥🔥🔥\ndef f() -> int:\n    return 1\n")
+        assert result
+
+
+# ---------------------------------------------------------------------------
+# Round-trip stress tests
+# ---------------------------------------------------------------------------
+
+class TestRoundTripStress:
+    """Full round-trips through the transpiler."""
+
+    def test_arithmetic_rt(self):
+        """Arithmetic expression must round-trip."""
+        src = "def f(x: int) -> int:\n    return x + 1 * 2\n"
+        mid = py_to_lean(src)
+        result = lean_to_py(mid)
+        assert result
+
+    def test_lambda_rt(self):
+        src = "def f() -> int:\n    return (lambda x: x + 1)(2)\n"
+        mid = py_to_lean(src)
+        result = lean_to_py(mid)
+        assert result
+
+    def test_if_exp_rt(self):
+        src = "def f(x: int) -> int:\n    return x if x > 0 else -x\n"
+        mid = py_to_lean(src)
+        result = lean_to_py(mid)
+        assert "x if" in result or "x > 0" in result or "if" in result
+
+
+# ---------------------------------------------------------------------------
+# Property survival — extended set
+# ---------------------------------------------------------------------------
+
+class TestExtendedSurvival:
+    """Extended smoke tests for constructs known to be partially supported."""
+
+    PY_SNIPPETS = [
+        "def f(x: int) -> bool:\n    return x >= 0 and x <= 10\n",
+        "def f(x: int) -> bool:\n    return x < 0 or x > 100\n",
+        "def f(x: list) -> int:\n    return len(x)\n",
+        "def f(x: int) -> int:\n    return +x\n",
+        "def f(x: float) -> float:\n    return ~int(x)\n",
+        "def f() -> dict:\n    return {1: 'a', 2: 'b'}\n",
+        "def f() -> tuple:\n    return (1, 2, 3)\n",
+        "def f() -> tuple:\n    return (1,)\n",
+        "def f(x: int) -> int:\n    return x >> 2\n",
+        "def f(x: int) -> int:\n    return x << 1\n",
+        "def f(x: int) -> int:\n    return x & 255\n",
+        "def f(x: int) -> int:\n    return x | 128\n",
+        "def f(x: int) -> int:\n    return x ^ 255\n",
+    ]
+
+    @pytest.mark.parametrize("code", PY_SNIPPETS)
+    def test_py_survives(self, code):
+        result = py_to_lean(code)
+        assert result
+
+    LEAN_SNIPPETS = [
+        pytest.param("def f (x : Int) : Bool := x >= 0 && x <= 10\n",
+                     marks=pytest.mark.xfail(reason="Lean parser does not support && operator", strict=True)),
+        pytest.param("def f (x : Int) : Bool := x < 0 || x > 100\n",
+                     marks=pytest.mark.xfail(reason="Lean parser does not support || operator", strict=True)),
+        "def f : List Int := [1, 2, 3]\n",
+        "def f : Int * Int * Int := (1, 2, 3)\n",
+        "def f (x : Int) : Int := x ^ 2\n",
+        pytest.param("def f (x : Int) : Int := x << 2\n",
+                     marks=pytest.mark.xfail(reason="Lean parser does not support << operator", strict=True)),
+        pytest.param("def f (x : Int) : Int := x >> 2\n",
+                     marks=pytest.mark.xfail(reason="Lean parser does not support >> operator", strict=True)),
+        pytest.param("def f (x : Int) : Int := x &&& 255\n",
+                     marks=pytest.mark.xfail(reason="Lean parser does not support &&& operator", strict=True)),
+        pytest.param("def f (x : Int) : Int := x ||| 128\n",
+                     marks=pytest.mark.xfail(reason="Lean parser does not support ||| operator", strict=True)),
+    ]
+
+    @pytest.mark.parametrize("code", LEAN_SNIPPETS)
+    def test_lean_survives(self, code):
+        result = lean_to_py(code)
+        assert result
