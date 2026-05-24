@@ -203,12 +203,9 @@ def _gen_stmt_Match(node: PyMatch, indent: int) -> str:
     i = "    " * indent
     lines = [f"{i}match {_gen_expr(node.subject)}:"]
     for case in node.cases:
-        lines.append(f"{i}    case {_gen_pattern_py(case.pattern)}:")
-        if case.guard:
-            lines.append(f"{i}        if {_gen_expr(case.guard)}:")
-            for s in case.body:
-                lines.append(_gen_stmt(s, indent + 3))
-        elif not case.body:
+        guard_str = f" if {_gen_expr(case.guard)}" if case.guard else ""
+        lines.append(f"{i}    case {_gen_pattern_py(case.pattern)}{guard_str}:")
+        if not case.body:
             lines.append(f"{i}        pass")
         else:
             for s in case.body:
@@ -296,12 +293,38 @@ def _gen_expr_Constant(node: PyConstant, indent: int = 0) -> str:
     return str(node.value)
 
 
+_PY_BINOP_PREC: dict[str, int] = {
+    "or": 1,
+    "and": 2,
+    "+": 5, "-": 5,
+    "*": 6, "/": 6, "//": 6, "%": 6,
+    "**": 7,
+}
+
+
+def _py_binop_prec(op: str) -> int:
+    return _PY_BINOP_PREC.get(op, 4)
+
+
+def _gen_py_binop_operand(node: PyExpr, parent_op: str, is_right: bool) -> str:
+    if isinstance(node, PyBinOp):
+        child_prec = _py_binop_prec(node.op)
+        parent_prec = _py_binop_prec(parent_op)
+        if child_prec < parent_prec or (is_right and child_prec == parent_prec):
+            return f"({_gen_expr_BinOp(node)})"
+    return _gen_expr(node)
+
+
 def _gen_expr_BinOp(node: PyBinOp, indent: int = 0) -> str:
-    return f"{_gen_expr(node.left)} {node.op} {_gen_expr(node.right)}"
+    left = _gen_py_binop_operand(node.left, node.op, is_right=False)
+    right = _gen_py_binop_operand(node.right, node.op, is_right=True)
+    return f"{left} {node.op} {right}"
 
 
 def _gen_expr_UnaryOp(node: PyUnaryOp, indent: int = 0) -> str:
-    return f"{node.op}{_gen_expr(node.operand)}"
+    operand = _gen_expr(node.operand)
+    sep = " " if node.op.isalpha() else ""
+    return f"{node.op}{sep}{operand}"
 
 
 def _gen_expr_Compare(node: PyCompare, indent: int = 0) -> str:
@@ -465,6 +488,8 @@ def _gen_pattern_py(node: PyExpr) -> str:
         if node.value is None:
             return "None"
         return repr(node.value)
+    if isinstance(node, PyMatchOr):
+        return " | ".join(_gen_pattern_py(p) for p in node.patterns)
     return _gen_expr(node)
 
 

@@ -160,6 +160,13 @@ class LeanLexer:
                 nxt = self._peek()
                 if nxt is not None and nxt in "+-":
                     self._advance()
+            elif ch in "eE" and not is_float:
+                # allow 1e10, 1E-5, etc. (no decimal point required)
+                is_float = True
+                self._advance()
+                nxt = self._peek()
+                if nxt is not None and nxt in "+-":
+                    self._advance()
             else:
                 break
         return start
@@ -244,7 +251,6 @@ class LeanLexer:
                 "++": "PLUSPLUS",
                 "|>": "PIPEOP",
                 "<|": "PIPEOP",
-                "→": "RARROW",
                 "≥": "GE",
                 "≤": "LE",
                 "≠": "NE",
@@ -274,6 +280,7 @@ class LeanLexer:
                 continue
 
             single = {
+                ";": "SEMI",
                 "(": "LPAREN",
                 ")": "RPAREN",
                 "[": "LBRACK",
