@@ -98,6 +98,8 @@ def _gen_def(node: LeanDef) -> str:
         kw = "theorem"
     elif node.is_lemma:
         kw = "lemma"
+    elif node.is_partial:
+        kw = "partial def"
     else:
         kw = "def"
     params = _gen_params(node.params)
@@ -177,7 +179,8 @@ def _needs_parens(n: LeanExpr) -> bool:
         | LeanMatch
         | LeanLet
         | LeanTypeArrow
-        | LeanTypeSpec,
+        | LeanTypeSpec
+        | LeanWhile,
     )
 
 
@@ -343,7 +346,8 @@ def _gen_expr_Let(node: LeanExpr, parent_prec: int = 0) -> str:
     params = _gen_params(node.params)
     typ = f" : {_gen_expr(node.type)}" if node.type else ""
     val = _gen_expr(node.value)
-    return f"let {node.name}{params}{typ} := {val}; {_gen_expr(node.body)}"
+    rec = " rec" if node.is_rec else ""
+    return f"let{rec} {node.name}{params}{typ} := {val}; {_gen_expr(node.body)}"
 
 
 def _gen_expr_Have(node: LeanExpr, parent_prec: int = 0) -> str:
@@ -360,6 +364,18 @@ def _gen_expr_Calc(node: LeanExpr, parent_prec: int = 0) -> str:
         f"{_gen_expr(s.relation)} := {_gen_expr(s.value)}" for s in node.steps
     )
     return f"calc\n    {steps}"
+
+
+def _gen_expr_While(node: LeanExpr, parent_prec: int = 0) -> str:
+    return f"while {_gen_expr(node.cond)} do\n    {_gen_expr(node.body)}"
+
+
+def _gen_expr_Break(node: LeanExpr, parent_prec: int = 0) -> str:
+    return "break"
+
+
+def _gen_expr_Continue(node: LeanExpr, parent_prec: int = 0) -> str:
+    return "continue"
 
 
 def _gen_expr_Do(node: LeanExpr, parent_prec: int = 0) -> str:
@@ -418,6 +434,9 @@ _EXPR_GEN_LEAN = {
     LeanBy: _gen_expr_By,
     LeanParenthesized: _gen_expr_Parenthesized,
     LeanNamedArg: _gen_expr_NamedArg,
+    LeanWhile: _gen_expr_While,
+    LeanBreak: _gen_expr_Break,
+    LeanContinue: _gen_expr_Continue,
 }
 
 
@@ -437,6 +456,9 @@ def _gen_do_stmt(node: LeanDoStmt) -> str:
         return f"{_gen_pattern(node.pattern)} <- {_gen_expr(node.value)}"
     elif isinstance(node, LeanDoExpr):
         return _gen_expr(node.expr)
+    elif isinstance(node, LeanDoWhile):
+        body = ";\n    ".join(_gen_do_stmt(s) for s in node.body)
+        return f"while {_gen_expr(node.cond)} do\n    {body}"
     return ""
 
 

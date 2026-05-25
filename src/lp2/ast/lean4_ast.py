@@ -44,6 +44,7 @@ class LeanDef(LeanCommand):
     is_lemma: bool = False
     is_mutual: bool = False
     sig_only: bool = False
+    is_partial: bool = False
 
 
 @dataclass
@@ -134,6 +135,7 @@ class LeanLet(LeanExpr):
     value: LeanExpr | None
     body: LeanExpr
     is_mut: bool = False
+    is_rec: bool = False
 
 
 @dataclass
@@ -353,6 +355,28 @@ class LeanDoBind(LeanDoStmt):
 @dataclass
 class LeanDoExpr(LeanDoStmt):
     expr: LeanExpr
+
+
+@dataclass
+class LeanDoWhile(LeanDoStmt):
+    cond: LeanExpr
+    body: list[LeanDoStmt]
+
+
+@dataclass
+class LeanWhile(LeanExpr):
+    cond: LeanExpr
+    body: LeanExpr
+
+
+@dataclass
+class LeanBreak(LeanExpr):
+    pass
+
+
+@dataclass
+class LeanContinue(LeanExpr):
+    pass
 
 
 @dataclass
