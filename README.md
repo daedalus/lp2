@@ -42,6 +42,11 @@ result = convert_file("input.py", "py2lean")
 
 ### Examples
 
+For more comprehensive examples, see the `examples/` directory:
+- `demo_theorem_transpilation.py`: Shows how to transpile mathematical theorems from Lean to Python as computable Boolean-valued functions
+- `fermat.py`: Example related to Fermat's Last Theorem
+- `simple_while.py`: Simple while loop example
+
 **Python → Lean4:**
 
 ```python

@@ -155,7 +155,8 @@ class LeanParser:
         is_lemma = self._maybe("LEMMA")
         is_mutual = self._maybe("MUTUAL")
         is_partial = self._maybe("PARTIAL")
-        self._expect("DEF")
+        if not (is_theorem or is_lemma):
+            self._expect("DEF")
         name_token = self._expect("ID")
         name = name_token.value
 

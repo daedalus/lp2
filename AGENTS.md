@@ -10,6 +10,13 @@ Bidirectional transpiler between Python 3.11+ and Lean 4. ~25 core files in `src
 - **Lean → Python**: `LeanParser().parse()` → `lean_to_py()` → `generate_python()`
 - Public API: `lp2.py_to_lean(str) -> str` and `lp2.lean_to_py(str) -> str` (both in `src/lp2/__init__.py`)
 
+## Examples
+
+See the `examples/` directory for demonstrations:
+- `demo_theorem_transpilation.py`: Shows how to transpile mathematical theorems from Lean to Python as computable Boolean-valued functions
+- `fermat.py`: Example related to Fermat's Last Theorem
+- `simple_while.py`: Simple while loop example
+
 ## Procedural workflow
 
 ### Add a new AST node
