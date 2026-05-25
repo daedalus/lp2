@@ -43,8 +43,12 @@ result = convert_file("input.py", "py2lean")
 ### Examples
 
 For more comprehensive examples, see the `examples/` directory:
-- `demo_theorem_transpilation.py`: Shows how to transpile mathematical theorems from Lean to Python as computable Boolean-valued functions
-- `fermat.py`: Example related to Fermat's Last Theorem
+- `demo_factorial_roundtrip.py` / `factorial.py`: Recursive factorial (Python → Lean → Python)
+- `demo_fibonacci_roundtrip.py` / `fibonacci.py`: Recursive Fibonacci
+- `demo_bubble_sort_roundtrip.py` / `bubble_sort.py`: Bubble sort with nested while loops
+- `demo_quicksort_roundtrip.py` / `quicksort.py`: Quicksort with for-loop + `if/elif/else`
+- `demo_fermat_roundtrip.py` / `fermat.py`: Fermat factorization with while loops
+- `demo_theorem_transpilation.py`: Transpile Lean theorems to Python as Boolean-valued functions
 - `simple_while.py`: Simple while loop example
 
 **Python → Lean4:**
@@ -77,6 +81,84 @@ def isZero(n: int) -> bool:
         case _:
             return False
 ```
+
+## Caveats & Limitations
+
+### Termination on `Int` recursion
+
+Lean's termination checker cannot prove well-foundedness for recursion over `Int`.
+The transpiler auto-detects self-recursive calls and emits `partial def` for such
+functions. This sidesteps termination checking but means Lean cannot verify the
+function always halts.
+
+```python
+def factorial(n: int) -> int:
+    if n <= 1:
+        return 1
+    return n * factorial(n - 1)
+```
+
+```lean4
+partial def factorial (n : Int) : Int :=
+  if n ≤ 1 then 1 else n * factorial (n - 1)
+```
+
+### `+` on lists (Python concatenation vs. Lean element-wise addition)
+
+Python's `+` on lists means **concatenation**. Lean 4.29.1 defines `Add (List α)`
+as element-wise addition (`zipWith`). The transpiler emits a `local instance`
+that overrides `Add (List Int)` to use `List.append`, so `+` on `List Int`
+concatenates as expected. This only covers `List Int` — other list types (e.g.,
+`List Float`, `List String`) remain element-wise.
+
+### List mutation is silently dropped
+
+In-place list mutation (`xs[i] = x`, `xs.append(x)`) is not supported. The
+transpiler silently drops these statements. Use immutable patterns instead:
+
+```python
+# Instead of:
+#   xs[i] = x
+#   xs.append(x)
+
+# Use:
+#   xs = xs[:i] + [x] + xs[i+1:]
+#   xs = xs + [x]
+```
+
+### Round-trip is lossy
+
+Transpiling Python → Lean → Python recovers syntactically valid Python code but
+loses some information:
+
+| Lost detail | Example | Round-trip result |
+|---|---|---|
+| `//` (int division) | `x // y` | `x / y` |
+| `tuple` type | `(1, 2)` → `Prod.mk` | parsed as generic call |
+| Return type annotations | `def f() -> int:` | `def f():` |
+| `for` / `while` loops | `let rec` / `match` | parser skips (not yet supported) |
+| Nested `let` chains | `let a := ...; let b := ...` | may produce unusual `def` wrappers |
+
+### No `Std` library available
+
+The evaluator (`lean --stdin`) runs Lean 4.29.1 without the `Std` library.
+Features like `omega`, `List.range`, and `HashMap` are unavailable. The
+transpiler uses a built-in `partial def get` helper for list indexing
+(bypassing `Fin` proof requirements).
+
+### Unsupported Python features
+
+These Python constructs have no Lean equivalent or are not yet implemented:
+
+- Generators / `yield`
+- `async` / `await`
+- Decorators
+- Exception handling (`try`/`except`/`finally`)
+- `with` statements (context managers)
+- List/dict/set comprehensions
+- `*args` / `**kwargs` (variadic functions)
+- Classes with methods (only simple data structures supported)
+- Augmented assignment on lists (`xs += [x]`)
 
 ## Development
 
