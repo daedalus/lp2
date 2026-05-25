@@ -186,6 +186,41 @@ class TestPyToLeanFunctional:
 """)
         assert result
 
+    def test_subscript_assign(self):
+        result = py_to_lean("""def set_first(xs: list, x: int) -> list:
+    xs[0] = x
+    return xs
+""")
+        assert "set" in result
+        assert result
+
+    def test_subscript_assign_in_loop(self):
+        result = py_to_lean("""def scale(xs: list, n: int) -> list:
+    i = 0
+    while i < len(xs):
+        xs[i] = xs[i] * n
+        i = i + 1
+    return xs
+""")
+        assert "let rec" in result or "loop" in result
+        assert "set" in result
+        assert result
+
+    def test_aug_assign_list(self):
+        result = py_to_lean("""def push(xs: list, x: int) -> list:
+    xs += [x]
+    return xs
+""")
+        assert result
+
+    def test_aug_assign_subscript(self):
+        result = py_to_lean("""def inc_first(xs: list) -> list:
+    xs[0] += 1
+    return xs
+""")
+        assert "set" in result
+        assert result
+
 
 class TestPyToLeanClass:
     def test_simple_class(self):
