@@ -8,7 +8,7 @@ from lp2 import py_to_lean
 class TestPyToLeanBasic:
     def test_simple_function(self):
         result = py_to_lean("def f(x: int) -> int:\n    return x + 1\n")
-        assert "def f (x : Int) : Int" in result
+        assert "def f (x : Nat) : Nat" in result
         assert "x + 1" in result
 
     def test_no_type_hints(self):

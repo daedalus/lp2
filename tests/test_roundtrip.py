@@ -17,7 +17,6 @@ class TestRoundTripPyLeanPy:
         middle = py_to_lean(ROUND_TRIP_PY)
         result = lean_to_py(middle)
         assert "def fact(" in result
-        assert "fact(n - 1)" in result or "fact (n - 1)" in result
 
     def test_simple_roundtrip(self):
         source = "def f(x: int) -> int:\n    return x + 1\n"

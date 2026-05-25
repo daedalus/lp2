@@ -53,14 +53,14 @@ _AUGOP_MAP = {
     py_ast.Sub: "-",
     py_ast.Mult: "*",
     py_ast.Div: "/",
-    py_ast.FloorDiv: "//",
+    py_ast.FloorDiv: "/",
     py_ast.Mod: "%",
-    py_ast.Pow: "**",
-    py_ast.LShift: "<<",
-    py_ast.RShift: ">>",
-    py_ast.BitOr: "|",
-    py_ast.BitXor: "^",
-    py_ast.BitAnd: "&",
+    py_ast.Pow: "^",
+    py_ast.LShift: "<<<",
+    py_ast.RShift: ">>>",
+    py_ast.BitOr: "|||",
+    py_ast.BitXor: "^^^",
+    py_ast.BitAnd: "&&&",
 }
 
 _BOOLOP_MAP = {

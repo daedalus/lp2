@@ -1,8 +1,12 @@
 from lp2.ast.lean4_ast import *
 from lp2.ast.python_ast import *
 
+# Config: when True, map Python `int` to `Nat` instead of `Int`.
+# Nat works with omega and supports structural recursion.
+USE_NAT: bool = True
+
 _PY_TYPE_TO_LEAN = {
-    "int": LeanIdent("Int"),
+    "int": LeanIdent("Nat") if USE_NAT else LeanIdent("Int"),
     "float": LeanIdent("Float"),
     "bool": LeanIdent("Bool"),
     "str": LeanIdent("String"),
@@ -87,28 +91,30 @@ def _make_get_helper() -> LeanDef:
             ),
         ],
     )
+    elem_type = LeanIdent("Nat") if USE_NAT else LeanIdent("Int")
     return LeanDef(
         name="get",
         is_partial=True,
         params=[
             LeanParam(
                 name="xs",
-                type=LeanApp(func=LeanIdent("List"), arg=LeanIdent("Int")),
+                type=LeanApp(func=LeanIdent("List"), arg=elem_type),
             ),
             LeanParam(name="i", type=LeanIdent("Nat")),
         ],
-        return_type=LeanIdent("Int"),
+        return_type=elem_type,
         value=get_body,
     )
 
 
 def _make_list_add_instance() -> LeanInstance:
+    elem_type = LeanIdent("Nat") if USE_NAT else LeanIdent("Int")
     return LeanInstance(
         name="",
         params=[],
         type=LeanApp(
             func=LeanIdent("Add"),
-            arg=LeanApp(func=LeanIdent("List"), arg=LeanIdent("Int")),
+            arg=LeanApp(func=LeanIdent("List"), arg=elem_type),
         ),
         methods=[
             LeanDef(
@@ -157,18 +163,19 @@ def _make_set_helper() -> LeanDef:
             ),
         ],
     )
+    elem_type = LeanIdent("Nat") if USE_NAT else LeanIdent("Int")
     return LeanDef(
         name="set",
         is_partial=True,
         params=[
             LeanParam(
                 name="xs",
-                type=LeanApp(func=LeanIdent("List"), arg=LeanIdent("Int")),
+                type=LeanApp(func=LeanIdent("List"), arg=elem_type),
             ),
             LeanParam(name="i", type=LeanIdent("Nat")),
-            LeanParam(name="x", type=LeanIdent("Int")),
+            LeanParam(name="x", type=elem_type),
         ],
-        return_type=LeanApp(func=LeanIdent("List"), arg=LeanIdent("Int")),
+        return_type=LeanApp(func=LeanIdent("List"), arg=elem_type),
         value=set_body,
     )
 
@@ -357,8 +364,21 @@ def _func_to_lean(node: PyFunctionDef) -> LeanDef:
         body = _stmts_to_lean_expr(body_stmts)
 
     is_partial = _has_rec_let(body) if body else False
+    is_recursive = False
     if not is_partial and body is not None:
         is_partial = _is_recursive(name, body)
+        is_recursive = is_partial
+
+    # Heuristic: if recursive on a single Nat param (and USE_NAT), add termination_by
+    tb = None
+    dec = None
+    if USE_NAT and is_recursive and body is not None:
+        nat_params = [p for p in params if isinstance(p.type, LeanIdent) and p.type.name == "Nat"]
+        if len(nat_params) == 1:
+            tb = LeanIdent(nat_params[0].name)
+            dec = "omega"
+            # termination_by replaces partial
+            is_partial = False
 
     return LeanDef(
         name=name,
@@ -366,6 +386,8 @@ def _func_to_lean(node: PyFunctionDef) -> LeanDef:
         return_type=return_type,
         value=body,
         is_partial=is_partial,
+        termination_by=tb,
+        decreasing_by=dec,
     )
 
 
@@ -417,23 +439,44 @@ def _make_subscript_assign(target: PySubscript, value: LeanExpr) -> LeanExpr:
 
 
 _AUG_OPS = {
-    "+=": "+",
-    "-=": "-",
-    "*=": "*",
-    "/=": "/",
-    "//=": "//",
-    "%=": "%",
-    "**=": "**",
-    "&=": "&",
-    "|=": "|",
-    "^=": "^",
-    "<<=": "<<",
-    ">>=": ">>",
+    "+": "+",
+    "-": "-",
+    "*": "*",
+    "/": "/",
+    "%": "%",
+    "^": "^",
+    "&&&": "&&&",
+    "|||": "|||",
+    "^^^": "^^^",
+    "<<<": "<<<",
+    ">>>": ">>>",
 }
 
 
 def _strip_aug_op(op: str) -> str:
     return _AUG_OPS.get(op, op.rstrip("="))
+
+
+def _to_bool(expr: LeanExpr, py_cond: PyExpr | None = None) -> LeanExpr:
+    """Wrap *expr* so it's a ``Bool`` suitable for ``if``/``while``.
+
+    Python truthiness for numbers means ``!= 0``.  If the original
+    Python condition is already a comparison or a ``bool`` literal we
+    leave it alone.
+    """
+    # If we have the original Python node, skip wrapping for:
+    #   - comparisons (a > b, x == y …)
+    #   - boolean ops (a and b, not c …)
+    #   - bool constants (True / False)
+    if py_cond is not None and isinstance(
+        py_cond,
+        (PyCompare, PyBoolOp, PyUnaryOp),
+    ):
+        return expr
+    if isinstance(py_cond, PyConstant) and isinstance(py_cond.value, bool):
+        return expr
+
+    return LeanBinOp(left=expr, op="≠", right=LeanNum(0))
 
 
 def _call_to_lean_print(node: PyCall) -> LeanExpr:
@@ -583,7 +626,7 @@ def _append_continuation(expr: LeanExpr, cont: LeanExpr) -> LeanExpr:
 
 
 def _fold_if(s: PyIf, result: LeanExpr) -> LeanExpr:
-    test = _expr_to_lean(s.test)
+    test = _to_bool(_expr_to_lean(s.test), s.test)
     then_body = _stmts_to_lean_expr(s.body) if s.body else LeanUnit()
     if not s.orelse:
         then_body = _append_continuation(then_body, result)
@@ -607,20 +650,21 @@ def _fold_if(s: PyIf, result: LeanExpr) -> LeanExpr:
 def _fold_while(s: PyWhile, result: LeanExpr) -> LeanExpr:
     carried = _find_carried_vars(s.body, s.test)
     body = _stmts_to_lean_expr(s.body)
-    body = _replace_carried_assign(body, carried)
-    test = _expr_to_lean(s.test)
+    body = _replace_carried_assign(body, carried, "while_loop")
+    test = _to_bool(_expr_to_lean(s.test), s.test)
     body = LeanIf(cond=test, then_expr=body, else_expr=result)
 
-    loop_params = [LeanParam(name=v, type=LeanHole()) for v in sorted(carried)]
+    hole_type = LeanIdent("Nat") if USE_NAT else LeanHole()
+    loop_params = [LeanParam(name=v, type=hole_type) for v in sorted(carried)]
     init_args = [LeanIdent(v) for v in sorted(carried)]
 
     loop_call: LeanExpr = (
-        LeanApp(func=LeanIdent("loop"), arg=init_args[0])
+        LeanApp(func=LeanIdent("while_loop"), arg=init_args[0])
         if len(init_args) == 1
         else LeanUnit()
     )
     if len(init_args) > 1:
-        loop_call = LeanApp(func=LeanIdent("loop"), arg=init_args[0])
+        loop_call = LeanApp(func=LeanIdent("while_loop"), arg=init_args[0])
         for a in init_args[1:]:
             loop_call = LeanApp(func=loop_call, arg=a)
 
@@ -628,9 +672,9 @@ def _fold_while(s: PyWhile, result: LeanExpr) -> LeanExpr:
         return body
 
     return LeanLet(
-        name="loop",
+        name="while_loop",
         params=loop_params,
-        type=LeanHole(),
+        type=hole_type,
         value=body,
         body=loop_call,
         is_rec=True,
@@ -659,7 +703,7 @@ def _prepend_arg_to_loop(expr: LeanExpr, arg_expr: LeanExpr) -> LeanExpr:
             name=expr.name,
             params=expr.params,
             type=expr.type,
-            value=expr.value,
+            value=_prepend_arg_to_loop(expr.value, arg_expr) if expr.value else None,
             body=_prepend_arg_to_loop(expr.body, arg_expr),
             is_mut=expr.is_mut,
             is_rec=expr.is_rec,
@@ -707,7 +751,8 @@ def _make_for_range_loop(
         cond = LeanBinOp(left=LeanIdent(target_name), op="<", right=end_expr)
         body = LeanIf(cond=cond, then_expr=body, else_expr=result)
         all_carried = [target_name] + sorted(carried)
-        loop_params = [LeanParam(name=v, type=LeanHole()) for v in all_carried]
+        hole_type = LeanIdent("Nat") if USE_NAT else LeanHole()
+        loop_params = [LeanParam(name=v, type=hole_type) for v in all_carried]
         init_args: list[LeanExpr] = [start_expr] + [
             LeanIdent(v) for v in sorted(carried)
         ]
@@ -717,7 +762,7 @@ def _make_for_range_loop(
         return LeanLet(
             name="loop",
             params=loop_params,
-            type=LeanHole(),
+            type=hole_type,
             value=body,
             body=loop_call_init,
             is_rec=True,
@@ -746,7 +791,8 @@ def _make_for_range_loop(
     body = LeanIf(cond=cond, then_expr=body, else_expr=result)
 
     all_carried = [target_name] + sorted(carried)
-    loop_params = [LeanParam(name=v, type=LeanHole()) for v in all_carried]
+    hole_type = LeanIdent("Nat") if USE_NAT else LeanHole()
+    loop_params = [LeanParam(name=v, type=hole_type) for v in all_carried]
     start_expr = _expr_to_lean(start)
     init_args = [start_expr] + [LeanIdent(v) for v in sorted(carried)]
     loop_call_init: LeanExpr = LeanIdent("loop")
@@ -756,7 +802,7 @@ def _make_for_range_loop(
     return LeanLet(
         name="loop",
         params=loop_params,
-        type=LeanHole(),
+        type=hole_type,
         value=body,
         body=loop_call_init,
         is_rec=True,
@@ -806,9 +852,11 @@ def _make_for_list_loop(
         ],
     )
 
-    loop_params = [LeanParam(name=tail_name, type=LeanHole())]
+    hole_type = LeanIdent("Nat") if USE_NAT else LeanHole()
+    list_type = LeanApp(func=LeanIdent("List"), arg=hole_type)
+    loop_params = [LeanParam(name=tail_name, type=list_type)]
     for v in sorted(carried):
-        loop_params.append(LeanParam(name=v, type=LeanHole()))
+        loop_params.append(LeanParam(name=v, type=hole_type))
 
     init_args = [iter_expr] + [LeanIdent(v) for v in sorted(carried)]
     loop_call_init: LeanExpr = LeanIdent("loop")
@@ -827,7 +875,7 @@ def _make_for_list_loop(
 
 def _fold_for(s: PyFor, result: LeanExpr) -> LeanExpr:
     target = _assign_target_name(s.target)
-    carried = _find_carried_vars(s.body)
+    carried = _find_carried_vars(s.body, context="for")
     if (
         isinstance(s.iter, PyCall)
         and isinstance(s.iter.func, PyName)
@@ -883,7 +931,7 @@ def _expr_stmt_expr(node: PyExprStmt) -> LeanExpr:
 
 
 def _expr_if_stmt(node: PyIf) -> LeanExpr:
-    test = _expr_to_lean(node.test)
+    test = _to_bool(_expr_to_lean(node.test), node.test)
     then_branch = _stmts_to_lean_expr(node.body)
     else_branch = _stmts_to_lean_expr(node.orelse) if node.orelse else LeanUnit()
     return LeanIf(cond=test, then_expr=then_branch, else_expr=else_branch)
@@ -966,7 +1014,9 @@ def _collect_name_refs(expr: PyExpr) -> set[str]:
     return refs
 
 
-def _find_carried_vars(body: list[PyStmt], test: PyExpr | None = None) -> set[str]:
+def _find_carried_vars(
+    body: list[PyStmt], test: PyExpr | None = None, context: str = "while"
+) -> set[str]:
     assign_targets: set[str] = set()
 
     def _collect_assigns(stmt: PyStmt) -> None:
@@ -1003,15 +1053,17 @@ def _find_carried_vars(body: list[PyStmt], test: PyExpr | None = None) -> set[st
         if isinstance(stmt, PyAugAssign):
             target = _assign_target_name(stmt.target)
             if target:
-                carried.add(target)
+                if context != "for" or target not in seen_assigned:
+                    carried.add(target)
                 _scan_refs(stmt.value) if stmt.value else None
                 seen_assigned.add(target)
-        elif isinstance(stmt, PyAssign):
+        elif isinstance(stmt, (PyAssign, PyAnnAssign)):
             target = _assign_target_name(stmt.target)
             if target:
                 if isinstance(stmt.target, PySubscript):
                     carried.add(target)
-                _scan_refs(stmt.value) if stmt.value else None
+                val = stmt.value if hasattr(stmt, "value") else None
+                _scan_refs(val) if val else None
                 seen_assigned.add(target)
         elif isinstance(stmt, PyIf):
             _scan_refs(stmt.test)
@@ -1021,6 +1073,8 @@ def _find_carried_vars(body: list[PyStmt], test: PyExpr | None = None) -> set[st
                 _visit_refs(s)
         elif isinstance(stmt, PyWhile):
             _scan_refs(stmt.test)
+            for s in stmt.body:
+                _visit_refs(s)
         elif isinstance(stmt, PyExprStmt):
             _scan_refs(stmt.expr)
         elif isinstance(stmt, PyReturn) and stmt.value:
@@ -1075,6 +1129,13 @@ def _ensure_leaf_loop_call(
         )
     if _is_loop_call(expr, loop_name):
         return expr
+    # If it's already a call to some function, it's a valid leaf
+    if isinstance(expr, LeanApp):
+        inner = expr
+        while isinstance(inner, LeanApp):
+            inner = inner.func
+        if isinstance(inner, LeanIdent):
+            return expr
     loop_call = _make_loop_call(all_carried, loop_name)
     if isinstance(expr, LeanUnit):
         return loop_call
@@ -1084,6 +1145,73 @@ def _ensure_leaf_loop_call(
         LeanLet(name="_", params=[], type=None, value=expr, body=LeanUnit()),
         loop_call,
     )
+
+
+def _substitute_var(expr: LeanExpr, var: str, replacement: LeanExpr) -> LeanExpr:
+    """Substitute all occurrences of LeanIdent(var) with replacement."""
+    if isinstance(expr, LeanIdent) and expr.name == var:
+        return replacement
+    if isinstance(expr, LeanApp):
+        return LeanApp(
+            func=_substitute_var(expr.func, var, replacement),
+            arg=_substitute_var(expr.arg, var, replacement),
+        )
+    if isinstance(expr, LeanBinOp):
+        return LeanBinOp(
+            left=_substitute_var(expr.left, var, replacement),
+            op=expr.op,
+            right=_substitute_var(expr.right, var, replacement),
+        )
+    if isinstance(expr, LeanUnaryOp):
+        return LeanUnaryOp(
+            op=expr.op,
+            operand=_substitute_var(expr.operand, var, replacement),
+        )
+    if isinstance(expr, LeanIf):
+        return LeanIf(
+            cond=_substitute_var(expr.cond, var, replacement),
+            then_expr=_substitute_var(expr.then_expr, var, replacement),
+            else_expr=_substitute_var(expr.else_expr, var, replacement)
+            if expr.else_expr
+            else None,
+        )
+    if isinstance(expr, LeanLet):
+        return LeanLet(
+            name=expr.name,
+            params=expr.params,
+            type=expr.type,
+            value=_substitute_var(expr.value, var, replacement) if expr.value else None,
+            body=_substitute_var(expr.body, var, replacement),
+            is_mut=expr.is_mut,
+            is_rec=expr.is_rec,
+        )
+    if isinstance(expr, LeanMatch):
+        return LeanMatch(
+            expr=_substitute_var(expr.expr, var, replacement),
+            arms=[
+                LeanMatchArm(
+                    pattern=arm.pattern,
+                    rhs=_substitute_var(arm.rhs, var, replacement),
+                )
+                for arm in expr.arms
+            ],
+        )
+    if isinstance(expr, LeanLambda):
+        return LeanLambda(
+            params=expr.params,
+            body=_substitute_var(expr.body, var, replacement),
+        )
+    if isinstance(expr, LeanProj):
+        return LeanProj(
+            expr=_substitute_var(expr.expr, var, replacement),
+            field=expr.field,
+        )
+    if isinstance(expr, LeanTypeSpec):
+        return LeanTypeSpec(
+            expr=_substitute_var(expr.expr, var, replacement),
+            type=_substitute_var(expr.type, var, replacement),
+        )
+    return expr
 
 
 def _replace_carried_assign(
@@ -1097,9 +1225,11 @@ def _replace_carried_assign(
 
     if isinstance(expr, LeanLet) and expr.name in carried:
         new_values: dict[str, LeanExpr] = {}
+        collected_order: list[str] = []
         remaining: LeanExpr = expr
         while isinstance(remaining, LeanLet) and remaining.name in carried:
             new_values[remaining.name] = remaining.value
+            collected_order.append(remaining.name)
             remaining = remaining.body
         if not _tail_reaches_unit(remaining, carried):
             return LeanLet(
@@ -1115,11 +1245,20 @@ def _replace_carried_assign(
                 is_mut=expr.is_mut,
                 is_rec=expr.is_rec,
             )
+        # Dependency-order substitution: substitute earlier-assigned vars'
+        # new values into later-assigned vars' expressions, preserving
+        # Python's sequential assignment semantics.
+        substituted: dict[str, LeanExpr] = {}
+        for name in collected_order:
+            val = new_values[name]
+            for prev_name in substituted:
+                val = _substitute_var(val, prev_name, substituted[prev_name])
+            substituted[name] = val
         sorted_names = sorted(all_carried)
         call: LeanExpr = LeanIdent(loop_name)
         for n in sorted_names:
-            if n in new_values:
-                call = LeanApp(func=call, arg=new_values[n])
+            if n in substituted:
+                call = LeanApp(func=call, arg=substituted[n])
             else:
                 call = LeanApp(func=call, arg=LeanIdent(n))
         return call
@@ -1167,19 +1306,20 @@ def _expr_while_stmt(node: PyWhile) -> LeanExpr:
     is_infinite = isinstance(node.test, PyConstant) and node.test.value is True
     carried = _find_carried_vars(node.body, node.test)
     body = _stmts_to_lean_expr(node.body)
-    body = _replace_carried_assign(body, carried)
+    body = _replace_carried_assign(body, carried, "while_loop")
     if not is_infinite:
-        test = _expr_to_lean(node.test)
+        test = _to_bool(_expr_to_lean(node.test), node.test)
         body = LeanIf(cond=test, then_expr=body, else_expr=LeanUnit())
 
-    loop_params = [LeanParam(name=v, type=LeanHole()) for v in sorted(carried)]
+    hole_type = LeanIdent("Nat") if USE_NAT else LeanHole()
+    loop_params = [LeanParam(name=v, type=hole_type) for v in sorted(carried)]
     init_args = [LeanIdent(v) for v in sorted(carried)]
 
     result: LeanExpr = LeanUnit()
     if len(init_args) == 1:
-        result = LeanApp(func=LeanIdent("loop"), arg=init_args[0])
+        result = LeanApp(func=LeanIdent("while_loop"), arg=init_args[0])
     elif len(init_args) > 1:
-        result = LeanApp(func=LeanIdent("loop"), arg=init_args[0])
+        result = LeanApp(func=LeanIdent("while_loop"), arg=init_args[0])
         for a in init_args[1:]:
             result = LeanApp(func=result, arg=a)
 
@@ -1187,9 +1327,9 @@ def _expr_while_stmt(node: PyWhile) -> LeanExpr:
         return body
 
     return LeanLet(
-        name="loop",
+        name="while_loop",
         params=loop_params,
-        type=LeanHole(),
+        type=hole_type,
         value=body,
         body=result,
         is_rec=True,
@@ -1325,7 +1465,118 @@ def _expr_bool_op(node: PyBoolOp) -> LeanExpr:
     return result
 
 
+# -- Stdlib pattern mapping table ----------------------------------------
+# Each entry is a tuple (matcher, builder) where:
+#   matcher :: (PyCall) -> dict[str, PyExpr] | None
+#   builder :: (dict)  -> LeanExpr
+# The dict maps placeholder names to the captured PyExpr nodes.
+
+_STDLIB_MAP: list[tuple] = []
+
+
+def _stdlib_register(matcher):
+    """Decorator to register a stdlib pattern matcher."""
+    _STDLIB_MAP.append(matcher)
+    return matcher
+
+
+@_stdlib_register
+def _match_pow(node: PyCall) -> dict | None:
+    """pow(x, y) -> x ^ y"""
+    if (
+        isinstance(node.func, PyName)
+        and node.func.id == "pow"
+        and len(node.args) == 2
+    ):
+        return {"base": node.args[0], "exp": node.args[1]}
+    return None
+
+
+def _build_pow(match: dict) -> LeanExpr:
+    return LeanBinOp(
+        left=_expr_to_lean(match["base"]),
+        op="^",
+        right=_expr_to_lean(match["exp"]),
+    )
+
+
+@_stdlib_register
+def _match_bin_count(node: PyCall) -> dict | None:
+    """bin(x).count("1") -> Nat.popCount x"""
+    if (
+        isinstance(node.func, PyAttribute)
+        and node.func.attr == "count"
+        and isinstance(node.func.value, PyCall)
+        and isinstance(node.func.value.func, PyName)
+        and node.func.value.func.id == "bin"
+        and len(node.func.value.args) == 1
+        and len(node.args) == 1
+        and isinstance(node.args[0], PyConstant)
+        and node.args[0].value in ("1", 1)
+    ):
+        return {"x": node.func.value.args[0]}
+    return None
+
+
+def _build_bin_count(match: dict) -> LeanExpr:
+    return LeanApp(func=LeanIdent("Nat.popCount"), arg=_expr_to_lean(match["x"]))
+
+
+@_stdlib_register
+def _match_math_factorial(node: PyCall) -> dict | None:
+    """math.factorial(x) -> Nat.factorial x"""
+    if (
+        isinstance(node.func, PyAttribute)
+        and node.func.attr == "factorial"
+        and isinstance(node.func.value, PyName)
+        and node.func.value.id == "math"
+        and len(node.args) == 1
+    ):
+        return {"x": node.args[0]}
+    return None
+
+
+def _build_math_factorial(match: dict) -> LeanExpr:
+    return LeanApp(func=LeanIdent("Nat.factorial"), arg=_expr_to_lean(match["x"]))
+
+
+@_stdlib_register
+def _match_bit_count(node: PyCall) -> dict | None:
+    """x.bit_count() -> Nat.popCount x"""
+    if (
+        isinstance(node.func, PyAttribute)
+        and node.func.attr == "bit_count"
+        and len(node.args) == 0
+    ):
+        return {"x": node.func.value}
+    return None
+
+
+def _build_bit_count(match: dict) -> LeanExpr:
+    return LeanApp(func=LeanIdent("Nat.popCount"), arg=_expr_to_lean(match["x"]))
+
+
+# -- End stdlib mapping table -------------------------------------------
+
+
+def _stdlib_expr_call(node: PyCall) -> LeanExpr | None:
+    """Check registered stdlib patterns; return Lean expr or None."""
+    for matcher in _STDLIB_MAP:
+        match = matcher(node)
+        if match is not None:
+            builder_name = matcher.__name__.replace("_match_", "_build_")
+            builder = globals().get(builder_name)
+            if builder:
+                return builder(match)
+    return None
+
+
 def _expr_call(node: PyCall) -> LeanExpr:
+    # Check stdlib patterns first
+    stdlib_result = _stdlib_expr_call(node)
+    if stdlib_result is not None:
+        return stdlib_result
+
     if isinstance(node.func, PyName) and node.func.id == "int" and len(node.args) == 1:
         arg = _expr_to_lean(node.args[0])
         return LeanApp(func=LeanIdent("Float.floor"), arg=arg)
@@ -1344,7 +1595,7 @@ def _expr_call(node: PyCall) -> LeanExpr:
 
 
 def _expr_if_exp(node: PyIfExp) -> LeanExpr:
-    test = _expr_to_lean(node.test)
+    test = _to_bool(_expr_to_lean(node.test), node.test)
     body = _expr_to_lean(node.body)
     orelse = _expr_to_lean(node.orelse)
     return LeanIf(cond=test, then_expr=body, else_expr=orelse)
@@ -1445,7 +1696,7 @@ def _type_name(node: PyName) -> LeanExpr:
     if name == "None":
         return LeanIdent("Unit")
     elif name == "int":
-        return LeanIdent("Int")
+        return LeanIdent("Nat") if USE_NAT else LeanIdent("Int")
     elif name == "float":
         return LeanIdent("Float")
     elif name == "bool":

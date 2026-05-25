@@ -45,6 +45,8 @@ class LeanDef(LeanCommand):
     is_mutual: bool = False
     sig_only: bool = False
     is_partial: bool = False
+    termination_by: LeanExpr | None = None
+    decreasing_by: str | None = None
 
 
 @dataclass

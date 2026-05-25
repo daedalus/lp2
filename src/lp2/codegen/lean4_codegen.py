@@ -111,7 +111,13 @@ def _gen_def(node: LeanDef) -> str:
     if node.value is None:
         return f"{kw} {node.name}{params}{ret}"
     val = _gen_expr(node.value)
-    return f"{kw} {node.name}{params}{ret} :=\n  {val}"
+    result = f"{kw} {node.name}{params}{ret} :=\n  {val}"
+    if node.termination_by:
+        tb = _gen_expr(node.termination_by)
+        result += f"\ntermination_by {tb}"
+    if node.decreasing_by:
+        result += f"\ndecreasing_by\n  {node.decreasing_by}"
+    return result
 
 
 def _gen_inductive(node: LeanInductive) -> str:
@@ -235,7 +241,8 @@ def _gen_expr_App(node: LeanExpr, parent_prec: int = 0) -> str:
     arg_str = _gen_expr(node.arg)
     if _needs_parens(node.arg):
         arg_str = f"({arg_str})"
-    if _needs_parens(node.func):
+    # Don't wrap LeanApp-as-function: (f a) b ≡ f a b in Lean
+    if _needs_parens(node.func) and not isinstance(node.func, LeanApp):
         func_str = f"({func_str})"
     return f"{func_str} {arg_str}"
 
