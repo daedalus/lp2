@@ -263,6 +263,66 @@ def _is_recursive(name: str, expr: LeanExpr) -> bool:
     return False
 
 
+def _contains_yield(stmts: list[PyStmt]) -> bool:
+    for stmt in stmts:
+        if isinstance(stmt, PyExprStmt) and isinstance(stmt.expr, PyYield):
+            return True
+        if isinstance(stmt, PyIf):
+            if _contains_yield(stmt.body) or _contains_yield(stmt.orelse):
+                return True
+        if isinstance(stmt, PyWhile) and _contains_yield(stmt.body):
+            return True
+        if isinstance(stmt, PyFor) and _contains_yield(stmt.body):
+            return True
+    return False
+
+
+def _transform_generator_body(body: list[PyStmt]) -> list[PyStmt]:
+    result_var = PyName(id="__yield_result__")
+
+    def _walk(stmts: list[PyStmt]) -> list[PyStmt]:
+        transformed: list[PyStmt] = []
+        for stmt in stmts:
+            if isinstance(stmt, PyExprStmt) and isinstance(stmt.expr, PyYield):
+                yield_val = stmt.expr.value
+                if yield_val is not None:
+                    transformed.append(
+                        PyAugAssign(
+                            target=PyName(id="__yield_result__"),
+                            op="+=",
+                            value=PyList(elts=[yield_val]),
+                        )
+                    )
+            elif isinstance(stmt, PyIf):
+                transformed.append(
+                    PyIf(
+                        test=stmt.test,
+                        body=_walk(stmt.body),
+                        orelse=_walk(stmt.orelse) if stmt.orelse else [],
+                    )
+                )
+            elif isinstance(stmt, PyWhile):
+                transformed.append(PyWhile(test=stmt.test, body=_walk(stmt.body)))
+            elif isinstance(stmt, PyFor):
+                transformed.append(
+                    PyFor(target=stmt.target, iter=stmt.iter, body=_walk(stmt.body))
+                )
+            elif isinstance(stmt, PyReturn):
+                transformed.append(PyReturn(value=result_var))
+            else:
+                transformed.append(stmt)
+        return transformed
+
+    new_body = _walk(body)
+    new_body.insert(0, PyAssign(target=result_var, value=PyList(elts=[])))
+
+    has_return = any(isinstance(s, PyReturn) for s in new_body)
+    if not has_return:
+        new_body.append(PyReturn(value=result_var))
+
+    return new_body
+
+
 def _func_to_lean(node: PyFunctionDef) -> LeanDef:
     name = _escape_name(node.name)
     params = []
@@ -275,20 +335,26 @@ def _func_to_lean(node: PyFunctionDef) -> LeanDef:
             kwargs["default"] = _expr_to_lean(default)
         params.append(LeanParam(name=_escape_name(arg_name), type=lean_ann, **kwargs))
 
+    is_generator = _contains_yield(node.body)
+
     return_type = None
     if node.return_type:
         return_type = _py_type_to_lean_type(node.return_type)
+    elif is_generator:
+        return_type = LeanApp(func=LeanIdent("List"), arg=LeanHole())
     else:
         return_type = LeanIdent("Unit")
 
-    if len(node.body) == 1 and isinstance(node.body[0], PyReturn):
+    body_stmts = _transform_generator_body(node.body) if is_generator else node.body
+
+    if len(body_stmts) == 1 and isinstance(body_stmts[0], PyReturn):
         body = (
-            _expr_to_lean(node.body[0].value)
-            if node.body[0].value
+            _expr_to_lean(body_stmts[0].value)
+            if body_stmts[0].value
             else LeanIdent("Unit")
         )
     else:
-        body = _stmts_to_lean_expr(node.body)
+        body = _stmts_to_lean_expr(body_stmts)
 
     is_partial = _has_rec_let(body) if body else False
     if not is_partial and body is not None:
@@ -533,6 +599,8 @@ def _fold_if(s: PyIf, result: LeanExpr) -> LeanExpr:
             )
         return LeanIf(cond=test, then_expr=then_body, else_expr=result)
     else_body = _stmts_to_lean_expr(s.orelse)
+    then_body = _append_continuation(then_body, result)
+    else_body = _append_continuation(else_body, result)
     return LeanIf(cond=test, then_expr=then_body, else_expr=else_body)
 
 

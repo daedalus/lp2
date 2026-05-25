@@ -222,6 +222,52 @@ class TestPyToLeanFunctional:
         assert result
 
 
+class TestPyToLeanYield:
+    def test_simple_yields(self):
+        result = py_to_lean("""def f() -> list[int]:
+    yield 1
+    yield 2
+    yield 3
+""")
+        assert "List" in result
+        assert result
+
+    def test_yield_while_loop(self):
+        result = py_to_lean("""def count(n: int) -> list[int]:
+    i = 0
+    while i < n:
+        yield i
+        i = i + 1
+""")
+        assert "let rec" in result or "loop" in result
+        assert result
+
+    def test_yield_for_loop(self):
+        result = py_to_lean("""def collect(xs: list[int]) -> list[int]:
+    for x in xs:
+        yield x
+""")
+        assert "let rec" in result or "loop" in result
+        assert result
+
+    def test_yield_if_else(self):
+        result = py_to_lean("""def pick(n: int) -> list[int]:
+    if n > 0:
+        yield 1
+    else:
+        yield 2
+""")
+        assert result
+
+    def test_yield_then_assign(self):
+        result = py_to_lean("""def f() -> list[int]:
+    yield 1
+    x = 42
+    yield x
+""")
+        assert result
+
+
 class TestPyToLeanClass:
     def test_simple_class(self):
         result = py_to_lean("""class Point:
