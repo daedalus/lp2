@@ -1783,7 +1783,16 @@ def _expr_starred(node: PyStarred) -> LeanExpr:
 
 
 def _expr_walrus(node: PyWalrus) -> LeanExpr:
-    return _expr_to_lean(node.value)
+    name = _assign_target_name(node.target)
+    if name is None:
+        return _expr_to_lean(node.value)
+    return LeanLet(
+        name=_escape_name(name),
+        params=[],
+        type=None,
+        value=_expr_to_lean(node.value),
+        body=LeanIdent(_escape_name(name)),
+    )
 
 
 _EXPR_TO_LEAN = {
