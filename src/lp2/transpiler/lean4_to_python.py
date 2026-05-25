@@ -131,6 +131,13 @@ def _ensure_return(stmts: list[PyStmt]) -> list[PyStmt]:
 
 
 def _estmts_let(n: LeanLet) -> list[PyStmt]:
+    if n.is_rec and n.params:
+        inner = _expr_to_stmts(n.body)
+        params = [(p.name, None, None) for p in n.params]
+        func_body = _expr_to_stmts(n.value)
+        return [
+            PyFunctionDef(name=n.name, args=params, return_type=None, body=func_body)
+        ] + inner
     inner = _expr_to_stmts(n.body)
     val = _expr_to_py(n.value)
     return [PyAssign(target=PyName(n.name), value=val)] + inner

@@ -208,6 +208,7 @@ class LeanParser:
             is_lemma=is_lemma,
             is_mutual=is_mutual,
             sig_only=sig_only,
+            is_partial=is_partial,
         )
 
     def _pos_is_binder(self) -> bool:
@@ -694,9 +695,12 @@ class LeanParser:
 
     def _parse_let(self) -> LeanLet:
         self._expect("LET")
-        is_mut = self._maybe("MUT")
+        is_rec = self._maybe("ID", "rec")
+        is_mut = self._maybe("MUT") if not is_rec else False
         if self._peek().kind == "WILD":
             name = self._advance().value
+        elif is_rec or self._peek().kind == "ID":
+            name = self._expect("ID").value
         else:
             name = self._expect("ID").value
         params = []
@@ -716,7 +720,13 @@ class LeanParser:
             self._expect("IN")
         body = self._parse_expr()
         return LeanLet(
-            name=name, params=params, type=typ, value=value, body=body, is_mut=is_mut
+            name=name,
+            params=params,
+            type=typ,
+            value=value,
+            body=body,
+            is_mut=is_mut,
+            is_rec=is_rec,
         )
 
     def _parse_have(self) -> LeanHave:
