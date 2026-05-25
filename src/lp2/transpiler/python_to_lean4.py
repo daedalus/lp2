@@ -172,6 +172,42 @@ def _has_rec_let(expr: LeanExpr) -> bool:
     return False
 
 
+def _is_recursive(name: str, expr: LeanExpr) -> bool:
+    if isinstance(expr, LeanIdent) and expr.name == name:
+        return True
+    if isinstance(expr, LeanApp):
+        return _is_recursive(name, expr.func) or _is_recursive(name, expr.arg)
+    if isinstance(expr, LeanBinOp):
+        return _is_recursive(name, expr.left) or _is_recursive(name, expr.right)
+    if isinstance(expr, LeanUnaryOp):
+        return _is_recursive(name, expr.operand)
+    if isinstance(expr, LeanIf):
+        return (
+            _is_recursive(name, expr.cond)
+            or _is_recursive(name, expr.then_expr)
+            or (expr.else_expr is not None and _is_recursive(name, expr.else_expr))
+        )
+    if isinstance(expr, LeanLet):
+        return (
+            _is_recursive(name, expr.value)
+            if expr.value
+            else False or _is_recursive(name, expr.body)
+        )
+    if isinstance(expr, LeanMatch):
+        return _is_recursive(name, expr.expr) or any(
+            _is_recursive(name, a.rhs) for a in expr.arms
+        )
+    if isinstance(expr, LeanLambda):
+        return _is_recursive(name, expr.body)
+    if isinstance(expr, LeanProj):
+        return _is_recursive(name, expr.expr)
+    from lp2.ast.lean4_ast import LeanTypeSpec
+
+    if isinstance(expr, LeanTypeSpec):
+        return _is_recursive(name, expr.expr) or _is_recursive(name, expr.type)
+    return False
+
+
 def _func_to_lean(node: PyFunctionDef) -> LeanDef:
     name = _escape_name(node.name)
     params = []
@@ -200,6 +236,8 @@ def _func_to_lean(node: PyFunctionDef) -> LeanDef:
         body = _stmts_to_lean_expr(node.body)
 
     is_partial = _has_rec_let(body) if body else False
+    if not is_partial and body is not None:
+        is_partial = _is_recursive(name, body)
 
     return LeanDef(
         name=name,
