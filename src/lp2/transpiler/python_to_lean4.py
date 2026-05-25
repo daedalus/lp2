@@ -102,9 +102,45 @@ def _make_get_helper() -> LeanDef:
     )
 
 
+def _make_list_add_instance() -> LeanInstance:
+    return LeanInstance(
+        name="",
+        params=[],
+        type=LeanApp(
+            func=LeanIdent("Add"),
+            arg=LeanApp(func=LeanIdent("List"), arg=LeanIdent("Int")),
+        ),
+        methods=[
+            LeanDef(
+                name="add",
+                params=[],
+                return_type=None,
+                value=LeanIdent("List.append"),
+            )
+        ],
+        is_local=True,
+    )
+
+
+_uses_list: bool = False
+
+
+def _expr_list(node: PyList) -> LeanExpr:
+    global _uses_list
+    _uses_list = True
+    elts = [_expr_to_lean(e) for e in node.elts]
+    if not elts:
+        return LeanIdent("List.nil")
+    result: LeanExpr = LeanIdent("List.nil")
+    for e in reversed(elts):
+        result = LeanApp(func=LeanApp(func=LeanIdent("List.cons"), arg=e), arg=result)
+    return result
+
+
 def py_to_lean(node: PyNode) -> LeanNode:
-    global _uses_subscript
+    global _uses_subscript, _uses_list
     _uses_subscript = False
+    _uses_list = False
     if isinstance(node, PyModule):
         body = []
         for stmt in node.body:
@@ -113,6 +149,8 @@ def py_to_lean(node: PyNode) -> LeanNode:
                 body.append(lean_cmd)
         if _uses_subscript:
             body.insert(0, _make_get_helper())
+        if _uses_list:
+            body.insert(0, _make_list_add_instance())
         return LeanModule(imports=[], body=body)
     raise ValueError(f"Unknown node: {type(node).__name__}")
 
@@ -395,12 +433,216 @@ def _fold_while(s: PyWhile, result: LeanExpr) -> LeanExpr:
     )
 
 
+def _prepend_arg_to_loop(expr: LeanExpr, arg_expr: LeanExpr) -> LeanExpr:
+    if (
+        isinstance(expr, LeanApp)
+        and isinstance(expr.func, LeanIdent)
+        and expr.func.name == "loop"
+    ):
+        return LeanApp(func=LeanApp(func=LeanIdent("loop"), arg=arg_expr), arg=expr.arg)
+    elif isinstance(expr, LeanApp):
+        return LeanApp(func=_prepend_arg_to_loop(expr.func, arg_expr), arg=expr.arg)
+    elif isinstance(expr, LeanIf):
+        return LeanIf(
+            cond=expr.cond,
+            then_expr=_prepend_arg_to_loop(expr.then_expr, arg_expr),
+            else_expr=_prepend_arg_to_loop(expr.else_expr, arg_expr)
+            if expr.else_expr
+            else None,
+        )
+    elif isinstance(expr, LeanLet):
+        return LeanLet(
+            name=expr.name,
+            params=expr.params,
+            type=expr.type,
+            value=expr.value,
+            body=_prepend_arg_to_loop(expr.body, arg_expr),
+            is_mut=expr.is_mut,
+            is_rec=expr.is_rec,
+        )
+    return expr
+
+
+def _make_for_range_loop(
+    target_name: str,
+    range_args: list[PyExpr],
+    body_stmts: list[PyStmt],
+    carried: set[str],
+    result: LeanExpr,
+) -> LeanExpr:
+    if len(range_args) == 1:
+        start = PyConstant(0)
+        end = range_args[0]
+        step = PyConstant(1)
+    elif len(range_args) == 2:
+        start = range_args[0]
+        end = range_args[1]
+        step = PyConstant(1)
+    else:
+        start = range_args[0]
+        end = range_args[1]
+        step_val = range_args[2]
+        step_expr = _expr_to_lean(step_val)
+        start_expr = _expr_to_lean(start)
+        end_expr = _expr_to_lean(end)
+        body = _stmts_to_lean_expr(body_stmts)
+        body = _replace_carried_assign(body, carried, "loop")
+        inc_expr = LeanBinOp(left=LeanIdent(target_name), op="+", right=step_expr)
+        if carried:
+            body = _prepend_arg_to_loop(body, inc_expr)
+        else:
+            loop_call = LeanApp(func=LeanIdent("loop"), arg=inc_expr)
+            if isinstance(body, LeanUnit):
+                body = loop_call
+            elif isinstance(body, LeanLet):
+                body = _append_continuation(body, loop_call)
+            else:
+                body = LeanLet(
+                    name="_", params=[], type=None, value=body, body=loop_call
+                )
+        cond = LeanBinOp(left=LeanIdent(target_name), op="<", right=end_expr)
+        body = LeanIf(cond=cond, then_expr=body, else_expr=result)
+        all_carried = [target_name] + sorted(carried)
+        loop_params = [LeanParam(name=v, type=LeanHole()) for v in all_carried]
+        init_args: list[LeanExpr] = [start_expr] + [
+            LeanIdent(v) for v in sorted(carried)
+        ]
+        loop_call_init: LeanExpr = LeanIdent("loop")
+        for a in init_args:
+            loop_call_init = LeanApp(func=loop_call_init, arg=a)
+        return LeanLet(
+            name="loop",
+            params=loop_params,
+            type=LeanHole(),
+            value=body,
+            body=loop_call_init,
+            is_rec=True,
+        )
+
+    end_expr = _expr_to_lean(end)
+    step_expr = _expr_to_lean(step)
+
+    body = _stmts_to_lean_expr(body_stmts)
+    body = _replace_carried_assign(body, carried, "loop")
+
+    inc_expr = LeanBinOp(left=LeanIdent(target_name), op="+", right=step_expr)
+
+    if carried:
+        body = _prepend_arg_to_loop(body, inc_expr)
+    else:
+        loop_call = LeanApp(func=LeanIdent("loop"), arg=inc_expr)
+        if isinstance(body, LeanUnit):
+            body = loop_call
+        elif isinstance(body, LeanLet):
+            body = _append_continuation(body, loop_call)
+        else:
+            body = LeanLet(name="_", params=[], type=None, value=body, body=loop_call)
+
+    cond = LeanBinOp(left=LeanIdent(target_name), op="<", right=end_expr)
+    body = LeanIf(cond=cond, then_expr=body, else_expr=result)
+
+    all_carried = [target_name] + sorted(carried)
+    loop_params = [LeanParam(name=v, type=LeanHole()) for v in all_carried]
+    start_expr = _expr_to_lean(start)
+    init_args = [start_expr] + [LeanIdent(v) for v in sorted(carried)]
+    loop_call_init: LeanExpr = LeanIdent("loop")
+    for a in init_args:
+        loop_call_init = LeanApp(func=loop_call_init, arg=a)
+
+    return LeanLet(
+        name="loop",
+        params=loop_params,
+        type=LeanHole(),
+        value=body,
+        body=loop_call_init,
+        is_rec=True,
+    )
+
+
+def _make_for_list_loop(
+    target_name: str,
+    iter_expr: LeanExpr,
+    body_stmts: list[PyStmt],
+    carried: set[str],
+    result: LeanExpr,
+) -> LeanExpr:
+    tail_name = "__xs_tail"
+
+    body = _stmts_to_lean_expr(body_stmts)
+    body = _replace_carried_assign(body, carried, "loop")
+
+    if carried:
+        body = _prepend_arg_to_loop(body, LeanIdent(tail_name))
+    else:
+        loop_call = LeanApp(func=LeanIdent("loop"), arg=LeanIdent(tail_name))
+        if isinstance(body, LeanUnit):
+            body = loop_call
+        elif isinstance(body, LeanLet):
+            body = _append_continuation(body, loop_call)
+        else:
+            body = LeanLet(name="_", params=[], type=None, value=body, body=loop_call)
+
+    match = LeanMatch(
+        expr=LeanIdent(tail_name),
+        arms=[
+            LeanMatchArm(
+                pattern=LeanPatternCtor(name="List.nil", patterns=[]),
+                rhs=result,
+            ),
+            LeanMatchArm(
+                pattern=LeanPatternCtor(
+                    name="List.cons",
+                    patterns=[
+                        LeanPatternIdent(name=target_name),
+                        LeanPatternIdent(name=tail_name),
+                    ],
+                ),
+                rhs=body,
+            ),
+        ],
+    )
+
+    loop_params = [LeanParam(name=tail_name, type=LeanHole())]
+    for v in sorted(carried):
+        loop_params.append(LeanParam(name=v, type=LeanHole()))
+
+    init_args = [iter_expr] + [LeanIdent(v) for v in sorted(carried)]
+    loop_call_init: LeanExpr = LeanIdent("loop")
+    for a in init_args:
+        loop_call_init = LeanApp(func=loop_call_init, arg=a)
+
+    return LeanLet(
+        name="loop",
+        params=loop_params,
+        type=LeanHole(),
+        value=match,
+        body=loop_call_init,
+        is_rec=True,
+    )
+
+
+def _fold_for(s: PyFor, result: LeanExpr) -> LeanExpr:
+    target = _assign_target_name(s.target)
+    carried = _find_carried_vars(s.body)
+    if (
+        isinstance(s.iter, PyCall)
+        and isinstance(s.iter.func, PyName)
+        and s.iter.func.id == "range"
+    ):
+        return _make_for_range_loop(target, s.iter.args, s.body, carried, result)
+    else:
+        return _make_for_list_loop(
+            target, _expr_to_lean(s.iter), s.body, carried, result
+        )
+
+
 _STMT_FOLD = {
     PyAnnAssign: _fold_assign_like,
     PyAssign: _fold_assign_like,
     PyAugAssign: _fold_aug_assign,
     PyIf: _fold_if,
     PyWhile: _fold_while,
+    PyFor: _fold_for,
 }
 
 
@@ -439,17 +681,12 @@ def _expr_stmt_expr(node: PyExprStmt) -> LeanExpr:
 def _expr_if_stmt(node: PyIf) -> LeanExpr:
     test = _expr_to_lean(node.test)
     then_branch = _stmts_to_lean_expr(node.body)
-    else_branch = _stmts_to_lean_expr(node.orelse) if node.orelse else None
+    else_branch = _stmts_to_lean_expr(node.orelse) if node.orelse else LeanUnit()
     return LeanIf(cond=test, then_expr=then_branch, else_expr=else_branch)
 
 
 def _expr_for_stmt(node: PyFor) -> LeanExpr:
-    iter_expr = _expr_to_lean(node.iter)
-    body = _stmts_to_lean_expr(node.body)
-    return LeanApp(
-        func=LeanApp(func=LeanIdent("for_in"), arg=iter_expr),
-        arg=LeanLambda(params=[LeanParam(name="_", type=None)], body=body),
-    )
+    return _fold_for(node, LeanUnit())
 
 
 def _expr_match_stmt(node: PyMatch) -> LeanExpr:
@@ -593,9 +830,58 @@ def _tail_reaches_unit(expr: LeanExpr, carried: set[str]) -> bool:
     return False
 
 
-def _replace_carried_assign(
-    expr: LeanExpr, carried: set[str], loop_name: str = "loop"
+def _is_loop_call(expr: LeanExpr, loop_name: str = "loop") -> bool:
+    while isinstance(expr, LeanApp):
+        if isinstance(expr.func, LeanIdent) and expr.func.name == loop_name:
+            return True
+        if isinstance(expr.func, LeanApp):
+            expr = expr.func
+        else:
+            break
+    return False
+
+
+def _make_loop_call(all_carried: set[str], loop_name: str = "loop") -> LeanExpr:
+    sorted_names = sorted(all_carried)
+    call: LeanExpr = LeanIdent(loop_name)
+    for n in sorted_names:
+        call = LeanApp(func=call, arg=LeanIdent(n))
+    return call
+
+
+def _ensure_leaf_loop_call(
+    expr: LeanExpr, all_carried: set[str], loop_name: str = "loop"
 ) -> LeanExpr:
+    if isinstance(expr, LeanIf):
+        return LeanIf(
+            cond=expr.cond,
+            then_expr=_ensure_leaf_loop_call(expr.then_expr, all_carried, loop_name),
+            else_expr=_ensure_leaf_loop_call(expr.else_expr, all_carried, loop_name)
+            if expr.else_expr
+            else None,
+        )
+    if _is_loop_call(expr, loop_name):
+        return expr
+    loop_call = _make_loop_call(all_carried, loop_name)
+    if isinstance(expr, LeanUnit):
+        return loop_call
+    if isinstance(expr, LeanLet):
+        return _append_continuation(expr, loop_call)
+    return _append_continuation(
+        LeanLet(name="_", params=[], type=None, value=expr, body=LeanUnit()),
+        loop_call,
+    )
+
+
+def _replace_carried_assign(
+    expr: LeanExpr,
+    carried: set[str],
+    loop_name: str = "loop",
+    all_carried: set[str] | None = None,
+) -> LeanExpr:
+    if all_carried is None:
+        all_carried = carried
+
     if isinstance(expr, LeanLet) and expr.name in carried:
         new_values: dict[str, LeanExpr] = {}
         remaining: LeanExpr = expr
@@ -607,44 +893,59 @@ def _replace_carried_assign(
                 name=expr.name,
                 params=expr.params,
                 type=expr.type,
-                value=_replace_carried_assign(expr.value, carried, loop_name),
-                body=_replace_carried_assign(expr.body, carried, loop_name),
+                value=_replace_carried_assign(
+                    expr.value, carried, loop_name, all_carried
+                ),
+                body=_replace_carried_assign(
+                    expr.body, carried, loop_name, all_carried
+                ),
                 is_mut=expr.is_mut,
                 is_rec=expr.is_rec,
             )
-        sorted_names = sorted(new_values.keys())
+        sorted_names = sorted(all_carried)
         call: LeanExpr = LeanIdent(loop_name)
         for n in sorted_names:
-            call = LeanApp(func=call, arg=new_values[n])
+            if n in new_values:
+                call = LeanApp(func=call, arg=new_values[n])
+            else:
+                call = LeanApp(func=call, arg=LeanIdent(n))
         return call
     elif isinstance(expr, LeanLet):
         return LeanLet(
             name=expr.name,
             params=expr.params,
             type=expr.type,
-            value=_replace_carried_assign(expr.value, carried, loop_name),
-            body=_replace_carried_assign(expr.body, carried, loop_name),
+            value=_replace_carried_assign(expr.value, carried, loop_name, all_carried),
+            body=_replace_carried_assign(expr.body, carried, loop_name, all_carried),
             is_mut=expr.is_mut,
             is_rec=expr.is_rec,
         )
     elif isinstance(expr, LeanIf):
-        return LeanIf(
-            cond=_replace_carried_assign(expr.cond, carried, loop_name),
-            then_expr=_replace_carried_assign(expr.then_expr, carried, loop_name),
-            else_expr=_replace_carried_assign(expr.else_expr, carried, loop_name)
+        then_expr = _replace_carried_assign(
+            expr.then_expr, carried, loop_name, all_carried
+        )
+        else_expr = (
+            _replace_carried_assign(expr.else_expr, carried, loop_name, all_carried)
             if expr.else_expr
+            else None
+        )
+        return LeanIf(
+            cond=_replace_carried_assign(expr.cond, carried, loop_name, all_carried),
+            then_expr=_ensure_leaf_loop_call(then_expr, all_carried, loop_name),
+            else_expr=_ensure_leaf_loop_call(else_expr, all_carried, loop_name)
+            if else_expr is not None
             else None,
         )
     elif isinstance(expr, LeanApp):
         return LeanApp(
-            func=_replace_carried_assign(expr.func, carried, loop_name),
-            arg=_replace_carried_assign(expr.arg, carried, loop_name),
+            func=_replace_carried_assign(expr.func, carried, loop_name, all_carried),
+            arg=_replace_carried_assign(expr.arg, carried, loop_name, all_carried),
         )
     elif isinstance(expr, LeanBinOp):
         return LeanBinOp(
-            left=_replace_carried_assign(expr.left, carried, loop_name),
+            left=_replace_carried_assign(expr.left, carried, loop_name, all_carried),
             op=expr.op,
-            right=_replace_carried_assign(expr.right, carried, loop_name),
+            right=_replace_carried_assign(expr.right, carried, loop_name, all_carried),
         )
     return expr
 
@@ -850,16 +1151,6 @@ def _expr_subscript(node: PySubscript) -> LeanExpr:
         func=LeanApp(func=LeanIdent("get"), arg=_expr_to_lean(node.value)),
         arg=_expr_to_lean(node.slice),
     )
-
-
-def _expr_list(node: PyList) -> LeanExpr:
-    elts = [_expr_to_lean(e) for e in node.elts]
-    if not elts:
-        return LeanIdent("List.nil")
-    result: LeanExpr = LeanIdent("List.nil")
-    for e in reversed(elts):
-        result = LeanApp(func=LeanApp(func=LeanIdent("List.cons"), arg=e), arg=result)
-    return result
 
 
 def _expr_tuple(node: PyTuple) -> LeanExpr:

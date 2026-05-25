@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Demo: Transpiling a well-known mathematical theorem from Lean 4 to Python
+Demo: Transpiling well-known mathematical theorems from Lean 4 to Python
 using the lp2 bidirectional transpiler.
 
 This demonstrates how to represent mathematical properties as computable
@@ -106,6 +106,102 @@ def add_zero_prop (a : Int) : Bool := (a + 0 = a)
     for a in test_cases3:
         result = add_zero_prop(a)
         print(f"  add_zero_prop({a:4}) = {result}")
+
+    print("\n" + "="*60 + "\n")
+
+    # Example 4: Multiplicative Commutativity
+    print("4. Multiplicative Commutativity: a * b = b * a")
+    print("-" * 50)
+
+    lean_source4 = '''
+def mul_comm_prop (a b : Int) : Bool := (a * b = b * a)
+'''
+
+    print("Lean 4 source:")
+    print(lean_source4.strip())
+
+    py_source4 = lean_to_py(lean_source4)
+    print("\nTranspiled Python source:")
+    print(py_source4.strip())
+
+    print("Testing the transpiled function:")
+    namespace4 = {}
+    exec(py_source4, namespace4)
+    mul_comm_prop = namespace4['mul_comm_prop']
+
+    test_cases4 = [
+        (0, 0),
+        (1, 2),
+        (-3, 5),
+        (100, -100),
+        (-5, -7)
+    ]
+
+    for a, b in test_cases4:
+        result = mul_comm_prop(a, b)
+        print(f"  mul_comm_prop({a:4}, {b:4}) = {result}")
+
+    print("\n" + "="*60 + "\n")
+
+    # Example 5: Multiplicative Associativity
+    print("5. Multiplicative Associativity: a * (b * c) = (a * b) * c")
+    print("-" * 50)
+
+    lean_source5 = '''
+def mul_assoc_prop (a b c : Int) : Bool := (a * (b * c)) = ((a * b) * c)
+'''
+
+    print("Lean 4 source:")
+    print(lean_source5.strip())
+
+    py_source5 = lean_to_py(lean_source5)
+    print("\nTranspiled Python source:")
+    print(py_source5.strip())
+
+    print("Testing the transpiled function:")
+    namespace5 = {}
+    exec(py_source5, namespace5)
+    mul_assoc_prop = namespace5['mul_assoc_prop']
+
+    test_cases5 = [
+        (0, 0, 0),
+        (1, 2, 3),
+        (-1, 5, -3),
+        (10, -5, 7),
+        (2, 3, 4)
+    ]
+
+    for a, b, c in test_cases5:
+        result = mul_assoc_prop(a, b, c)
+        print(f"  mul_assoc_prop({a:3}, {b:3}, {c:3}) = {result}")
+
+    print("\n" + "="*60 + "\n")
+
+    # Example 6: Multiplicative Identity
+    print("6. Multiplicative Identity: a * 1 = a")
+    print("-" * 50)
+
+    lean_source6 = '''
+def mul_one_prop (a : Int) : Bool := (a * 1 = a)
+'''
+
+    print("Lean 4 source:")
+    print(lean_source6.strip())
+
+    py_source6 = lean_to_py(lean_source6)
+    print("\nTranspiled Python source:")
+    print(py_source6.strip())
+
+    print("Testing the transpiled function:")
+    namespace6 = {}
+    exec(py_source6, namespace6)
+    mul_one_prop = namespace6['mul_one_prop']
+
+    test_cases6 = [0, 1, -5, 100, -42]
+
+    for a in test_cases6:
+        result = mul_one_prop(a)
+        print(f"  mul_one_prop({a:4}) = {result}")
 
     print("\n" + "="*60)
     print("Demo completed successfully!")

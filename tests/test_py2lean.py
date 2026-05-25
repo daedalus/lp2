@@ -80,7 +80,7 @@ class TestPyToLeanControlFlow:
         total = total + i
     return total
 """)
-        assert "for_in" in result or "for" in result
+        assert "let rec" in result or "loop" in result
 
     def test_if_elif_else(self):
         result = py_to_lean("""def sign(x: int) -> int:
@@ -92,6 +92,38 @@ class TestPyToLeanControlFlow:
         return 0
 """)
         assert result
+
+    def test_for_list_iteration(self):
+        result = py_to_lean("""def sum_list(xs: list) -> int:
+    total = 0
+    for x in xs:
+        total = total + x
+    return total
+""")
+        assert "let rec" in result
+        assert "match" in result
+
+    def test_for_range_with_start_end(self):
+        result = py_to_lean("""def sum_range(n: int) -> int:
+    total = 0
+    for i in range(1, n):
+        total = total + i
+    return total
+""")
+        assert "let rec" in result
+
+    def test_for_with_if_branches(self):
+        result = py_to_lean("""def partition(xs: list) -> int:
+    less = 0
+    greater = 0
+    for x in xs:
+        if x < 0:
+            less = less + 1
+        elif x > 0:
+            greater = greater + 1
+    return less + greater
+""")
+        assert "loop" in result
 
 
 class TestPyToLeanOperatorsExtended:

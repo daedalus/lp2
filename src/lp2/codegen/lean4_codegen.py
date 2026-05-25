@@ -142,9 +142,11 @@ def _gen_class(node: LeanClass) -> str:
 
 def _gen_instance(node: LeanInstance) -> str:
     params = _gen_params(node.params)
-    lines = [f"instance {node.name}{params} : {_gen_expr(node.type)} where"]
+    local = "local " if node.is_local else ""
+    lines = [f"{local}instance {node.name}{params} : {_gen_expr(node.type)} where"]
     for method in node.methods:
-        lines.append(f"  {_gen_def(method)}")
+        val = _gen_expr(method.value) if method.value else "?"
+        lines.append(f"  {method.name} := {val}")
     return "\n".join(lines)
 
 

@@ -98,6 +98,7 @@ class LeanInstance(LeanCommand):
     params: list[LeanParam]
     type: LeanExpr
     methods: list[LeanDef]
+    is_local: bool = False
 
 
 @dataclass

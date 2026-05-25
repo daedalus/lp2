@@ -118,9 +118,17 @@ class LeanParser:
         body: list[LeanNode] = []
         while self._peek().kind != "EOF":
             kind = self._peek().kind
+            local = False
+            if kind == "LOCAL":
+                local = True
+                self._advance()
+                kind = self._peek().kind
             handler = self._MODULE_DISPATCH.get(kind)
             if handler is not None:
-                body.append(getattr(self, handler)())
+                node = getattr(self, handler)()
+                if local and isinstance(node, LeanInstance):
+                    node.is_local = True
+                body.append(node)
             elif kind in ("HASH_EVAL", "HASH_CHECK"):
                 self._advance()
                 body.append(LeanExample(expr=self._parse_expr()))
@@ -333,10 +341,28 @@ class LeanParser:
         if self._peek().kind in ("COLONEQ", "EQ"):
             self._advance()
         methods = []
-        while self._peek().kind == "DEF" or (
-            self._peek().kind == "ID" and self._peek().value != "end"
-        ):
-            methods.append(self._parse_def())
+        if self._peek().kind == "WHERE":
+            self._advance()
+            while self._peek().kind == "ID":
+                name_tok = self._expect("ID")
+                mt_name = name_tok.value
+                mt_params = []
+                while self._peek().kind == "ID":
+                    mt_params.append(
+                        LeanParam(name=self._expect("ID").value, type=None)
+                    )
+                self._expect("COLONEQ")
+                mt_val = self._parse_expr()
+                methods.append(
+                    LeanDef(
+                        name=mt_name, params=mt_params, return_type=None, value=mt_val
+                    )
+                )
+        else:
+            while self._peek().kind == "DEF" or (
+                self._peek().kind == "ID" and self._peek().value != "end"
+            ):
+                methods.append(self._parse_def())
         return LeanInstance(name=name, params=params, type=typ, methods=methods)
 
     def _parse_axiom(self) -> LeanAxiom:

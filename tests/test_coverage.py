@@ -89,7 +89,7 @@ class TestLeanCodegenCommands:
         )
         out = generate_lean(m)
         assert "instance myInst" in out
-        assert "def x" in out
+        assert "x := 42" in out
 
     def test_axiom(self):
         m = LeanModule(
