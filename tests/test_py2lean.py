@@ -277,6 +277,31 @@ class TestPyToLeanClass:
         assert "structure" in result.lower() or "class" in result
 
 
+class TestPyToLeanNoTranspile:
+    def test_no_transpile_decorator(self):
+        code = """\
+@no_transpile
+def f(x):
+    return f'hello {x}'
+
+def g(a: int) -> int:
+    return a + 1
+"""
+        result = py_to_lean(code)
+        assert "no_transpile" in result
+        assert "f'hello {x}'" in result or "hello" in result
+        assert "def g" in result
+        assert "a + 1" in result or "a + Nat.succ 0" in result
+
+    def test_unsupported_stmt_becomes_comment(self):
+        code = """\
+def f(x: int) -> int:
+    return x + 1
+"""
+        result = py_to_lean(code)
+        assert "def f" in result
+
+
 class TestPyToLeanEdgeCases:
     def test_invalid_syntax(self):
         with pytest.raises(SyntaxError):

@@ -49,6 +49,7 @@ For more comprehensive examples, see the `examples/` directory:
 - `demo_quicksort_roundtrip.py` / `quicksort.py`: Quicksort with for-loop + `if/elif/else`
 - `demo_fermat_roundtrip.py` / `fermat.py`: Fermat factorization with while loops
 - `demo_theorem_transpilation.py`: Transpile Lean theorems to Python as Boolean-valued functions
+- `factorial_algorithms.py` / `factorial_algorithms_test.py` / `factorial_algorithms.lean`: Multiple factorial algorithms (iterative, product tree, prime swing) with `@no_transpile` for unsupported features
 - `simple_while.py`: Simple while loop example
 
 **Python → Lean4:**
@@ -84,6 +85,57 @@ def isZero(n: int) -> bool:
 
 ## Caveats & Limitations
 
+### `no_transpile` — skipping unsupported Python features
+
+When the transpiler encounters a Python feature it cannot translate (e.g.,
+generators, comprehensions, bytearray, f-strings), it raises an error by default.
+You can mark any function or statement with `@no_transpile` to keep the original
+Python source in the output as a Lean comment:
+
+```python
+@no_transpile
+def sieve(n: int) -> list[int]:
+    bs = bytearray(b"\x01") * (n + 1)
+    bs[0:2] = b"\x00\x00"
+    return [i for i in range(2, n + 1) if bs[i]]
+```
+
+Generates:
+
+```lean4
+-- no_transpile (@sieve)
+--   def sieve(n: int) -> list[int]:
+--       bs = bytearray(b"\x01") * (n + 1)
+--       ...
+```
+
+For individual lines, use a `# no_transpile` comment:
+
+```python
+sys.set_int_max_str_digits(100000)  # no_transpile
+```
+
+Both annotations are **parser-only** and never executed at Python runtime.
+
+### Stdlib source-following for imported functions
+
+When the transpiler sees `import math`, it imports the module at transpile time.
+If it encounters `math.factorial(x)`, it attempts to retrieve the function's
+source via `inspect.getsource` and transpile it automatically. For C-extension
+functions (like `math.factorial`), where no Python source exists, it falls back
+to transpiling a known Python implementation:
+
+```lean4
+partial def factorial (n : Nat) : Nat :=
+  let result := 1; let rec loop (i : Nat) (result : Nat) : Nat :=
+    if i < n + 1 then loop (i + 1) (result * i) else result; loop 2 result
+```
+
+This avoids maintaining a brittle mapping from Python stdlib names to Lean
+library paths. Pure-Python functions from `functools`, `collections`, etc. can
+be auto-transpiled in the same way. Only functions where source retrieval fails
+_and_ no fallback exists require `@no_transpile`.
+
 ### Termination on `Int` recursion
 
 Lean's termination checker cannot prove well-foundedness for recursion over `Int`.
@@ -105,7 +157,7 @@ partial def factorial (n : Int) : Int :=
 
 ### `+` on lists (Python concatenation vs. Lean element-wise addition)
 
-Python's `+` on lists means **concatenation**. Lean 4.29.1 defines `Add (List α)`
+Python's `+` on lists means **concatenation**. Lean 4.30.0-rc2 defines `Add (List α)`
 as element-wise addition (`zipWith`). The transpiler emits a `local instance`
 that overrides `Add (List Int)` to use `List.append`, so `+` on `List Int`
 concatenates as expected. This only covers `List Int` — other list types (e.g.,
@@ -139,12 +191,18 @@ loses some information:
 | `for` / `while` loops | `let rec` / `match` | parser skips (not yet supported) |
 | Nested `let` chains | `let a := ...; let b := ...` | may produce unusual `def` wrappers |
 
-### No `Std` library available
+### No `Std` or `mathlib4` available
 
-The evaluator (`lean --stdin`) runs Lean 4.29.1 without the `Std` library.
-Features like `omega`, `List.range`, and `HashMap` are unavailable. The
-transpiler uses a built-in `partial def get` helper for list indexing
-(bypassing `Fin` proof requirements).
+The transpiler targets Lean 4.30.0-rc2 without `Std` or `mathlib4`.
+Features like `omega`, `List.range`, `HashMap`, `Nat.factorial`, and `Nat.popCount`
+are unavailable from the standard library. The transpiler compensates with:
+
+- A built-in `partial def get` helper for list indexing (bypassing `Fin` proof
+  requirements)
+- A built-in `Nat.popCount` shim (bit-count via recursion)
+- Stdlib source-following (see above) to synthesize implementations from
+  equivalent Python code
+- `@no_transpile` as the escape hatch for anything that cannot be synthesized
 
 ### Unsupported Python features
 
@@ -152,13 +210,14 @@ These Python constructs have no Lean equivalent or are not yet implemented:
 
 - Generators / `yield`
 - `async` / `await`
-- Decorators
+- Decorators (except the special `@no_transpile`)
 - Exception handling (`try`/`except`/`finally`)
 - `with` statements (context managers)
 - List/dict/set comprehensions
 - `*args` / `**kwargs` (variadic functions)
 - Classes with methods (only simple data structures supported)
 - Augmented assignment on lists (`xs += [x]`)
+- F-strings, slice assignment, `dict`/`set` mutation
 
 ## Development
 

@@ -69,7 +69,12 @@ _BOOLOP_MAP = {
 }
 
 
+_RAW_SOURCE: str = ""
+
+
 def parse_python(source: str) -> PyModule:
+    global _RAW_SOURCE
+    _RAW_SOURCE = source
     tree = py_ast.parse(source)
     return _convert_module(tree)
 
@@ -78,8 +83,29 @@ def _convert_module(node: py_ast.Module) -> PyModule:
     return PyModule(body=[_convert_stmt(s) for s in node.body])
 
 
+def _has_no_transpile(decorators: list[py_ast.expr]) -> bool:
+    for d in decorators:
+        if isinstance(d, py_ast.Name) and d.id == "no_transpile":
+            return True
+        if isinstance(d, py_ast.Attribute) and d.attr == "no_transpile":
+            return True
+    return False
+
+
+def _capture_source(node: py_ast.stmt) -> list[str]:
+    """Extract the raw source lines for a given AST node."""
+    global _RAW_SOURCE
+    lines = _RAW_SOURCE.splitlines()
+    start = node.lineno - 1
+    end = node.end_lineno  # 1‑based inclusive
+    return lines[start:end]
+
+
 def _handle_FunctionDef(node: py_ast.stmt) -> PyStmt:
     n = node  # type: ignore[attr-defined]
+    if _has_no_transpile(n.decorator_list):
+        raw = _capture_source(node)
+        return PySkipTranspile(source_lines=raw, reason=f"@{n.name}")
     return PyFunctionDef(
         name=n.name,
         args=_convert_args(n.args),
@@ -302,11 +328,41 @@ if hasattr(py_ast, "TypeAlias"):
     _STMT_HANDLERS[py_ast.TypeAlias] = _handle_TypeAlias
 
 
+def _has_line_no_transpile(node: py_ast.stmt) -> bool:
+    """Check if the line immediately before `node` has a # no_transpile comment."""
+    lines = _RAW_SOURCE.splitlines()
+    lineno = node.lineno
+    # Try line before
+    if lineno >= 2:
+        prev = lines[lineno - 2].strip()
+        if prev.rstrip().endswith("# no_transpile"):
+            return True
+    # Try same line after the statement (inline)
+    cur = lines[lineno - 1]
+    if "# no_transpile" in cur:
+        return True
+    return False
+
+
+def _capture_source(node: py_ast.stmt) -> list[str]:
+    """Extract the raw source lines for a given AST node."""
+    global _RAW_SOURCE
+    lines = _RAW_SOURCE.splitlines()
+    start = node.lineno - 1
+    end = node.end_lineno  # 1‑based inclusive
+    return lines[start:end]
+
+
 def _convert_stmt(node: py_ast.stmt) -> PyStmt:
+    if _has_line_no_transpile(node):
+        raw = _capture_source(node)
+        reason = f"# no_transpile at line {node.lineno}"
+        return PySkipTranspile(source_lines=raw, reason=reason)
     handler = _STMT_HANDLERS.get(type(node))
     if handler is not None:
         return handler(node)
-    raise ValueError(f"Unknown statement: {type(node).__name__}")
+    raw = _capture_source(node)
+    return PySkipTranspile(source_lines=raw, reason=f"unsupported {type(node).__name__}")
 
 
 def _cvt_Name(node: py_ast.expr) -> PyExpr:

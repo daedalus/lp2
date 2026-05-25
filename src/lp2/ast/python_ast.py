@@ -171,6 +171,16 @@ class PyDelete(PyStmt):
 
 
 @dataclass
+class PySkipTranspile(PyStmt):
+    """Marker for code that should not be transpiled (e.g. @no_transpile).
+
+    Stores the raw source lines so they can be emitted as Lean comments.
+    """
+    source_lines: list[str]
+    reason: str = ""
+
+
+@dataclass
 class PyAsyncFunctionDef(PyStmt):
     name: str
     args: list[tuple[str, PyExpr | None, PyExpr | None]]

@@ -1,5 +1,9 @@
+import importlib
+import inspect
+
 from lp2.ast.lean4_ast import *
 from lp2.ast.python_ast import *
+from lp2.parser.python_parser import parse_python
 
 # Config: when True, map Python `int` to `Nat` instead of `Int`.
 # Nat works with omega and supports structural recursion.
@@ -128,6 +132,51 @@ def _make_list_add_instance() -> LeanInstance:
     )
 
 
+def _make_popcount_shim() -> LeanDef:
+    return LeanDef(
+        name="Nat.popCount",
+        params=[LeanParam(name="n", type=LeanIdent("Nat"))],
+        return_type=LeanIdent("Nat"),
+        value=LeanMatch(
+            expr=LeanIdent("n"),
+            arms=[
+                LeanMatchArm(
+                    pattern=LeanPatternCtor(name="Nat.zero", patterns=[]),
+                    rhs=LeanNum(0),
+                ),
+                LeanMatchArm(
+                    pattern=LeanPatternCtor(
+                        name="Nat.succ",
+                        patterns=[LeanPatternIdent(name="n")],
+                    ),
+                    rhs=LeanBinOp(
+                        left=LeanBinOp(
+                            left=LeanApp(
+                                func=LeanIdent("Nat.succ"),
+                                arg=LeanIdent("n"),
+                            ),
+                            op="&&&",
+                            right=LeanNum(1),
+                        ),
+                        op="+",
+                        right=LeanApp(
+                            func=LeanIdent("Nat.popCount"),
+                            arg=LeanBinOp(
+                                left=LeanApp(
+                                    func=LeanIdent("Nat.succ"),
+                                    arg=LeanIdent("n"),
+                                ),
+                                op=">>>",
+                                right=LeanNum(1),
+                            ),
+                        ),
+                    ),
+                ),
+            ],
+        ),
+    )
+
+
 def _make_set_helper() -> LeanDef:
     set_body = LeanMatch(
         expr=LeanIdent("xs"),
@@ -182,6 +231,10 @@ def _make_set_helper() -> LeanDef:
 
 _uses_list: bool = False
 _uses_set: bool = False
+_uses_popcount: bool = False
+_imported_modules: dict[str, object] = {}
+_generated_helpers: list[LeanCommand] = []
+_transpiling_helper: bool = False
 
 
 def _expr_list(node: PyList) -> LeanExpr:
@@ -197,22 +250,31 @@ def _expr_list(node: PyList) -> LeanExpr:
 
 
 def py_to_lean(node: PyNode) -> LeanNode:
-    global _uses_subscript, _uses_list, _uses_set
+    global _uses_subscript, _uses_list, _uses_set, _uses_popcount, _imported_modules, _generated_helpers, _transpiling_helper
     _uses_subscript = False
     _uses_list = False
     _uses_set = False
+    _uses_popcount = False
+    _imported_modules = {}
+    _generated_helpers = []
+    _transpiling_helper = False
     if isinstance(node, PyModule):
         body = []
         for stmt in node.body:
             lean_cmd = _stmt_to_lean_cmd(stmt)
             if lean_cmd:
                 body.append(lean_cmd)
+        if _uses_popcount:
+            body.insert(0, _make_popcount_shim())
         if _uses_subscript:
             body.insert(0, _make_get_helper())
         if _uses_set:
             body.insert(0, _make_set_helper())
         if _uses_list:
             body.insert(0, _make_list_add_instance())
+        if _generated_helpers:
+            for cmd in reversed(_generated_helpers):
+                body.insert(0, cmd)
         return LeanModule(imports=[], body=body)
     raise ValueError(f"Unknown node: {type(node).__name__}")
 
@@ -250,11 +312,9 @@ def _is_recursive(name: str, expr: LeanExpr) -> bool:
             or (expr.else_expr is not None and _is_recursive(name, expr.else_expr))
         )
     if isinstance(expr, LeanLet):
-        return (
-            _is_recursive(name, expr.value)
-            if expr.value
-            else False or _is_recursive(name, expr.body)
-        )
+        if expr.value and _is_recursive(name, expr.value):
+            return True
+        return _is_recursive(name, expr.body)
     if isinstance(expr, LeanMatch):
         return _is_recursive(name, expr.expr) or any(
             _is_recursive(name, a.rhs) for a in expr.arms
@@ -352,7 +412,7 @@ def _func_to_lean(node: PyFunctionDef) -> LeanDef:
     else:
         return_type = LeanIdent("Unit")
 
-    body_stmts = _transform_generator_body(node.body) if is_generator else node.body
+    body_stmts = [s for s in (_transform_generator_body(node.body) if is_generator else node.body) if not isinstance(s, PySkipTranspile)]
 
     if len(body_stmts) == 1 and isinstance(body_stmts[0], PyReturn):
         body = (
@@ -523,7 +583,14 @@ def _cmd_aug_assign(node) -> LeanCommand | None:
 
 
 def _cmd_import(node: PyImport) -> LeanCommand | None:
-    return LeanOpen(names=[n.split(".")[-1] for n in node.names])
+    for name in node.names:
+        mod_name = name.split(".")[0]
+        if mod_name not in _imported_modules:
+            try:
+                _imported_modules[mod_name] = importlib.import_module(mod_name)
+            except ImportError:
+                pass
+    return None
 
 
 def _cmd_expr_stmt(node: PyExprStmt) -> LeanCommand | None:
@@ -540,6 +607,12 @@ def _cmd_expr_stmt(node: PyExprStmt) -> LeanCommand | None:
     return LeanExample(expr=_expr_to_lean(node.expr))
 
 
+def _cmd_skip_transpile(node: PySkipTranspile) -> LeanCommand | None:
+    prefix = f"-- no_transpile ({node.reason})"
+    lines = [f"--   {line}" for line in node.source_lines]
+    return LeanRaw(text=prefix + "\n" + "\n".join(lines))
+
+
 _STMT_TO_CMD = {
     PyFunctionDef: _cmd_func_def,
     PyClassDef: _cmd_class_def,
@@ -548,6 +621,7 @@ _STMT_TO_CMD = {
     PyAugAssign: _cmd_aug_assign,
     PyImport: _cmd_import,
     PyExprStmt: _cmd_expr_stmt,
+    PySkipTranspile: _cmd_skip_transpile,
 }
 
 
@@ -1288,6 +1362,11 @@ def _replace_carried_assign(
             if else_expr is not None
             else None,
         )
+    elif isinstance(expr, LeanContinue):
+        call: LeanExpr = LeanIdent(loop_name)
+        for n in sorted(all_carried):
+            call = LeanApp(func=call, arg=LeanIdent(n))
+        return call
     elif isinstance(expr, LeanApp):
         return LeanApp(
             func=_replace_carried_assign(expr.func, carried, loop_name, all_carried),
@@ -1519,6 +1598,8 @@ def _match_bin_count(node: PyCall) -> dict | None:
 
 
 def _build_bin_count(match: dict) -> LeanExpr:
+    global _uses_popcount
+    _uses_popcount = True
     return LeanApp(func=LeanIdent("Nat.popCount"), arg=_expr_to_lean(match["x"]))
 
 
@@ -1536,7 +1617,51 @@ def _match_math_factorial(node: PyCall) -> dict | None:
     return None
 
 
+_FACTORIAL_FALLBACK_SOURCE = """
+def factorial(n: int) -> int:
+    result = 1
+    for i in range(2, n + 1):
+        result *= i
+    return result
+"""
+
+
+def _transpile_func_source(source: str) -> LeanDef | None:
+    """Parse and transpile a single Python function definition string."""
+    try:
+        mod = parse_python(source)
+        for stmt in mod.body:
+            if isinstance(stmt, PyFunctionDef):
+                return _func_to_lean(stmt)
+    except Exception:
+        return None
+    return None
+
+
 def _build_math_factorial(match: dict) -> LeanExpr:
+    global _transpiling_helper
+    if _transpiling_helper:
+        return LeanApp(func=LeanIdent("Nat.factorial"), arg=_expr_to_lean(match["x"]))
+
+    func_obj = _imported_modules.get("math")
+    if func_obj is not None:
+        try:
+            source = inspect.getsource(getattr(func_obj, "factorial"))
+            _transpiling_helper = True
+            lean_def = _transpile_func_source(source)
+            _transpiling_helper = False
+            if lean_def is not None:
+                _generated_helpers.append(lean_def)
+                return LeanApp(func=LeanIdent("factorial"), arg=_expr_to_lean(match["x"]))
+        except (OSError, TypeError):
+            _transpiling_helper = False
+
+    _transpiling_helper = True
+    lean_def = _transpile_func_source(_FACTORIAL_FALLBACK_SOURCE)
+    _transpiling_helper = False
+    if lean_def is not None:
+        _generated_helpers.append(lean_def)
+        return LeanApp(func=LeanIdent("factorial"), arg=_expr_to_lean(match["x"]))
     return LeanApp(func=LeanIdent("Nat.factorial"), arg=_expr_to_lean(match["x"]))
 
 
@@ -1553,6 +1678,8 @@ def _match_bit_count(node: PyCall) -> dict | None:
 
 
 def _build_bit_count(match: dict) -> LeanExpr:
+    global _uses_popcount
+    _uses_popcount = True
     return LeanApp(func=LeanIdent("Nat.popCount"), arg=_expr_to_lean(match["x"]))
 
 

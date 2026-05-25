@@ -56,6 +56,10 @@ def _gen_cmd_Example(node: LeanExample, indent: int) -> str:
     return f"#eval {_gen_expr(node.expr)}"
 
 
+def _gen_cmd_Raw(node: LeanRaw, indent: int) -> str:
+    return node.text
+
+
 def _gen_cmd_Variable(node: LeanVariable, indent: int) -> str:
     return f"variable {' '.join(_gen_param(p) for p in node.params)}"
 
@@ -73,6 +77,7 @@ def _gen_cmd_Section(node: LeanSection, indent: int) -> str:
 
 _CMD_GEN = {
     LeanDef: _gen_cmd_Def,
+    LeanRaw: _gen_cmd_Raw,
     LeanOpen: _gen_cmd_Open,
     LeanInductive: _gen_cmd_Inductive,
     LeanStructure: _gen_cmd_Structure,
