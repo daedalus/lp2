@@ -250,6 +250,130 @@ class LeanLexer:
         "⊓": "SQCAP",
         "⋂": "BIGINTER",
         "⁻": "SUPMINUS",
+        # Phase 2 additions — mathematical Unicode operators
+        "•": "BULLET",
+        "⟶": "RARROW",
+        "⥤": "RARROW",
+        "∞": "INFINITY",
+        "‹": "LANGLE",
+        "‖": "PIPEPIPE",
+        "⇑": "UPARROW",
+        "⧸": "SLASH",
+        "⊗": "STAR",
+        "↪": "RARROW",
+        "⊕": "PLUS",
+        "∫": "INTEGRAL",
+        "≅": "EQV",
+        "↥": "UPARROW",
+        "⟦": "LBRACK",
+        "∂": "PARTIAL",
+        "⁅": "LBRACK",
+        "√": "SQRT",
+        "⊂": "SUBSET",
+        "⌊": "LFLOOR",
+        "⦋": "LBRACK",
+        "⟪": "LANGLE",
+        "≫": "GTGT",
+        "≪": "LTLT",
+        "⅟": "SLASH",
+        "⋆": "STAR",
+        "⋙": "GTGTGT",
+        "≌": "DEQ",
+        "⋀": "AMPAMP",
+        "⨁": "PLUS",
+        "↾": "UPARROW",
+        "⟮": "LPAREN",
+        "≍": "EQV",
+        "⁄": "SLASH",
+        "⬝": "DOT",
+        "∙": "BULLET",
+        "⟹": "RARROW",
+        "⁺": "PLUS",
+        "↿": "UPARROW",
+        "○": "CIRCLE",
+        "⨂": "STAR",
+        "⤳": "RARROW",
+        "⇨": "RARROW",
+        "⇒": "RARROW",
+        "∠": "ANGLE",
+        "≼": "LE",
+        "⩿": "LE",
+        "∗": "STAR",
+        "≈": "DEQ",
+        "⟂": "BOT",
+        "≺": "LT",
+        "⊙": "CIRCLE",
+        "⌈": "LCEIL",
+        "∐": "STAR",
+        "∆": "TRIANGLE",
+        "◁": "TRIANGLE",
+        "⨯": "STAR",
+        "⊇": "SUPSET",
+        "⊨": "TURNSTILE",
+        "⊞": "PLUS",
+        "∥": "PIPEPIPE",
+        "⊣": "TURNSTILE",
+        "□": "SQUARE",
+        "✶": "STAR",
+        "∼": "DEQ",
+        "△": "TRIANGLE",
+        "￢": "BANG",
+        "′": "PRIME",
+        "↘": "DOWNARROW",
+        "↟": "UPARROW",
+        "∡": "ANGLE",
+        "⊻": "PLUS",
+        "‼": "BANG",
+        "⊑": "LE",
+        "◾": "SQUARE",
+        "₊": "PLUS",
+        "◃": "TRIANGLE",
+        "∇": "GRADIENT",
+        "⨿": "STAR",
+        "／": "SLASH",
+        "⋈": "STAR",
+        "⊼": "NAND",
+        "↗": "UPARROW",
+        "≀": "STAR",
+        "⋊": "TRIANGLE",
+        "⨍": "INTEGRAL",
+        "¥": "YEN",
+        "♭": "FLAT",
+        "⏎": "RETURN",
+        "▷": "TRIANGLE",
+        "⁽": "LPAREN",
+        "✗": "BALLOT_X",
+        "›": "RANGLE",
+        "⟧": "RBRACK",
+        "⟫": "RANGLE",
+        "⦌": "RBRACK",
+        "⁆": "RBRACK",
+        "⌋": "RFLOOR",
+        "⟯": "RPAREN",
+        "⌉": "RCEIL",
+        "∮": "INTEGRAL",
+        "◫": "SQUARE",
+        "≟": "DEQ",
+        "⊚": "CIRCLE",
+        "⊠": "STAR",
+        "⊃": "SUPSET",
+        "⊵": "TRIANGLE",
+        "⊴": "TRIANGLE",
+        "⊛": "STAR",
+        "＼": "BACKSLASH",
+        "⇔": "IFF",
+        "⋔": "STAR",
+        "⋯": "DOTDOTDOT",
+        "⍟": "STAR",
+        "⊡": "DOT",
+        "♯": "HASH",
+        "⤞": "RARROW",
+        "∤": "DIVIDES",
+        "∯": "INTEGRAL",
+        "†": "STAR",
+        "⊸": "RARROW",
+        "⁾": "RPAREN",
+        "✓": "BALLOT_X",
     }
 
     _SINGLE = {
@@ -314,14 +438,19 @@ class LeanLexer:
                 self._advance()
                 self.tokens.append(Token("IMG", "''", pos, line, col))
                 return
-            self._tokenize_char(pos, line, col)
+            nxt = self._peek(1)
+            if nxt is not None and nxt != "'" and self._peek(2) == "'":
+                self._tokenize_char(pos, line, col)
+                return
+            self._advance()
+            self.tokens.append(Token("ID", "'", pos, line, col))
             return
 
-        if ch.isdigit():
+        if ch in "0123456789":
             self._tokenize_number(pos, line, col)
             return
 
-        if ch.isalpha() or ch in "_λ∀":
+        if ch.isalpha() or ch in "_λ∀" or (ch.isdigit() and ch not in "0123456789"):
             self._tokenize_ident(line, col)
             return
 
@@ -334,7 +463,8 @@ class LeanLexer:
         if self._tokenize_single(ch, pos, line, col):
             return
 
-        self._error(f"Unexpected character {ch!r}")
+        self._advance()
+        self.tokens.append(Token("ID", ch, pos, line, col))
 
     def _tokenize_single(self, ch: str, pos: int, line: int, col: int) -> bool:
         if ch in self._UNICODE_SINGLE:

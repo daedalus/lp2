@@ -1,13 +1,34 @@
+import keyword
+
 from lp2.ast.lean4_ast import *
 from lp2.ast.python_ast import *
 
 
 def _sanitize_identifier(name: str) -> str:
-    result = "".join("_" if not (c.isalnum() or c == "_") else c for c in name)
-    if not result or result[0].isdigit():
+    result = "".join(
+        c if c.isascii() and (c.isalnum() or c == "_") else "_" for c in name
+    )
+    if (
+        not result
+        or not result.isidentifier()
+        or result[0].isdigit()
+        or keyword.iskeyword(result)
+    ):
         result = "_" + result
-    if not result.isidentifier():
-        result = "_" + result
+    return result
+
+
+def _dedup_names(names: list[str]) -> list[str]:
+    seen: dict[str, int] = {}
+    result: list[str] = []
+    for n in names:
+        clean = _sanitize_identifier(n)
+        if clean in seen:
+            seen[clean] += 1
+            clean = f"{clean}_{seen[clean]}"
+        else:
+            seen[clean] = 0
+        result.append(clean)
     return result
 
 
@@ -77,7 +98,9 @@ _CMD_TO_STMT = {
     LeanInductive: lambda n: _inductive_to_class(n),
     LeanAxiom: lambda _: PyPass(),
     LeanExample: lambda n: PyExprStmt(expr=_expr_to_py(n.expr)) if n.expr else None,
-    LeanOpen: lambda n: PyImport(names=n.names),
+    LeanOpen: lambda n: PyImport(
+        names=[_sanitize_identifier(name) for name in n.names]
+    ),
     LeanVariable: lambda _: None,
     LeanNamespace: _cmd_to_stmt_ns,
 }
@@ -92,23 +115,25 @@ def _cmd_to_stmt(node: LeanCommand) -> PyStmt | None:
 
 def _def_to_func(node: LeanDef) -> PyFunctionDef:
     name = _sanitize_identifier(node.name)
-    py_args = []
+    py_args_raw = []
+
     for p in node.params:
         py_ann = _lean_type_to_py(p.type) if p.type else None
         py_default = _expr_to_py(p.default) if p.default else None
-        py_args.append((p.name, py_ann, py_default))
+        py_args_raw.append((p.name, py_ann, py_default))
 
-    # Lif ∀-binders from return_type into function parameters.
-    # e.g. `theorem f (m : ℕ) : ∀ n, ...` makes `n` a function param.
     existing_names = {p.name for p in node.params}
     return_type_expr = node.return_type
     while isinstance(return_type_expr, LeanForall):
         for fp in return_type_expr.params:
             if fp.name not in existing_names:
                 py_ann = _lean_type_to_py(fp.type) if fp.type else None
-                py_args.append((fp.name, py_ann, None))
+                py_args_raw.append((fp.name, py_ann, None))
                 existing_names.add(fp.name)
         return_type_expr = return_type_expr.body
+
+    deduped = _dedup_names([r[0] for r in py_args_raw])
+    py_args = [(deduped[i], r[1], r[2]) for i, r in enumerate(py_args_raw)]
 
     # For theorems/lemmas, use the statement (return type) as the body.
     # Regular defs use the value expression as body.
@@ -192,7 +217,9 @@ def _ensure_return(stmts: list[PyStmt]) -> list[PyStmt]:
 def _estmts_let(n: LeanLet) -> list[PyStmt]:
     if n.is_rec and n.params:
         inner = _expr_to_stmts(n.body)
-        params = [(p.name, None, None) for p in n.params]
+        raw_names = [p.name for p in n.params]
+        clean_names = _dedup_names(raw_names)
+        params = [(clean_names[i], None, None) for i, p in enumerate(n.params)]
         func_body = _expr_to_stmts(n.value)
         return [
             PyFunctionDef(
@@ -225,10 +252,43 @@ def _estmts_if(n: LeanIf) -> list[PyStmt]:
 def _estmts_match(n: LeanMatch) -> list[PyStmt]:
     subject = _expr_to_py(n.expr)
     cases = []
+    guard_counter = 0
     for arm in n.arms:
-        pat = _pattern_to_expr(arm.pattern)
+        pat = arm.pattern
         body = _expr_to_stmts(arm.rhs)
-        cases.append(PyMatchCase(pattern=pat, guard=None, body=body))
+        if not body:
+            body = [PyPass()]
+        # Bare names in Python match/case are capture variables, not constant
+        # patterns. Use guards for constructors parsed as LeanPatternIdent
+        # or empty-arity LeanPatternCtor (except known Python constants).
+        ctor_name = None
+        if isinstance(pat, LeanPatternCtor):
+            ctor_name = _sanitize_identifier(pat.name)
+        elif isinstance(pat, LeanPatternIdent):
+            ctor_name = _sanitize_identifier(pat.name)
+        if ctor_name:
+            if ctor_name == "none":
+                cases.append(PyMatchCase(pattern=PyName("None"), guard=None, body=body))
+            elif ctor_name in ("true", "false"):
+                cases.append(
+                    PyMatchCase(
+                        pattern=PyConstant(value=ctor_name == "true"),
+                        guard=None,
+                        body=body,
+                    )
+                )
+            else:
+                gv = f"_c{guard_counter}"
+                guard_counter += 1
+                gd = PyCompare(
+                    left=PyName(gv), ops=["=="], comparators=[PyName(id=ctor_name)]
+                )
+                cases.append(PyMatchCase(pattern=PyName(gv), guard=gd, body=body))
+        else:
+            pat_expr = _pattern_to_expr(pat)
+            cases.append(PyMatchCase(pattern=pat_expr, guard=None, body=body))
+    if not cases:
+        return [PyPass()]
     return [PyMatch(subject=subject, cases=cases)]
 
 
@@ -354,7 +414,107 @@ _OP_MAP = {
     "|>": "|>",
     "^": "^",
     "++": "+",
+    "∈": "in",
+    "∉": "not_in",
+    "⊆": "issubset",
+    "⊇": "issuperset",
+    "⊂": "issubset",
+    "⊃": "issuperset",
+    "∪": "|",
+    "∩": "&",
+    "∖": "-",
+    "×": "*",
+    "⊓": "meet",
+    "⊔": "join",
+    "⊤": "top",
+    "⊥": "bot",
+    "∘": "compose",
+    "⊗": "tensor",
+    "⊕": "oplus",
+    "⊞": "oplus",
+    "⊡": "boxdot",
+    "⊚": "circ",
+    "⊛": "ast",
+    "⊠": "boxtimes",
+    "∗": "*",
+    "⋆": "*",
+    "⨯": "*",
+    "∥": "parallel",
+    "†": "dagger",
+    "•": "bullet",
+    "·": "cdot",
+    "′": "prime",
+    "∇": "nabla",
+    "∂": "partial",
+    "∑": "sum",
+    "∏": "prod",
+    "∫": "integral",
+    "√": "sqrt",
+    "∞": "inf",
+    "⌊": "floor",
+    "⌈": "ceil",
+    "⌋": "rfloor",
+    "⌉": "rceil",
+    "◁": "triangleleft",
+    "▷": "triangleright",
+    "⋈": "bowtie",
+    "⋊": "rtimes",
+    "⋉": "ltimes",
+    "⋀": "big_and",
+    "⋁": "big_or",
+    "⋂": "big_inter",
+    "⋃": "big_union",
+    "⨁": "big_oplus",
+    "⨂": "big_otimes",
+    "⨿": "coproduct",
+    "⋄": "diamond",
+    "△": "triangle",
+    "◻": "square",
+    "◾": "square",
+    "□": "square",
+    "✶": "star",
+    "⬝": "dot",
+    "∙": "bullet",
+    "⋮": "vellip",
+    "⋯": "cdots",
 }
+
+_UNARY_OP_MAP = {
+    "¬": "not",
+    "-": "-",
+    "+": "+",
+    "~": "~",
+    "not": "not",
+}
+
+
+_PY_BINOPS = frozenset(
+    {
+        "+",
+        "-",
+        "*",
+        "/",
+        "%",
+        "**",
+        "//",
+        "<<",
+        ">>",
+        "&",
+        "|",
+        "^",
+        "@",
+        "==",
+        "!=",
+        "<",
+        ">",
+        "<=",
+        ">=",
+        "in",
+        "and",
+        "or",
+        "is",
+    }
+)
 
 
 def _expr_py_binop(n: LeanBinOp) -> PyExpr:
@@ -364,22 +524,30 @@ def _expr_py_binop(n: LeanBinOp) -> PyExpr:
         return PyCall(func=PyName("bind"), args=[left, right], kwargs=[])
     if n.op == "|>":
         return PyCall(func=right, args=[left], kwargs=[])
-    py_op = _OP_MAP.get(n.op, n.op)
-    if py_op == "::":
-        if isinstance(right, PyList):
-            return PyList(elts=[left] + right.elts)
-        return PyList(elts=[left, right])
-    return PyBinOp(left=left, op=py_op, right=right)
+    py_op = _OP_MAP.get(n.op)
+    if py_op is not None:
+        if py_op == "::":
+            if isinstance(right, PyList):
+                return PyList(elts=[left] + right.elts)
+            return PyList(elts=[left, right])
+        if py_op == "not_in":
+            return PyCall(func=PyName("not_in"), args=[left, right], kwargs=[])
+        if py_op in _PY_BINOPS:
+            return PyBinOp(left=left, op=py_op, right=right)
+        return PyCall(func=PyName(py_op), args=[left, right], kwargs=[])
+    # Flat Unicode operator as function call
+    op_name = f"op_{'_'.join(f'u{ord(c):04X}' for c in n.op)}"
+    return PyCall(func=PyName(op_name), args=[left, right], kwargs=[])
 
 
 def _expr_py_lambda(n: LeanLambda) -> PyExpr:
-    params = []
-    for p in n.params:
-        params.append((p.name, _lean_type_to_py(p.type) if p.type else None))
+    raw_names = [p.name for p in n.params]
+    clean_names = _dedup_names(raw_names)
+    params = [(clean_names[i], None) for i, p in enumerate(n.params)]
     return PyLambda(args=params, body=_expr_to_py(n.body))
 
 
-def _expr_py_typearrow(n: LeanTypeArrow) -> PyExpr:
+def _expr_py_typearrow(n: LeanTypeArrow) -> PyExpr:  # noqa: ARG001
     return PyName("Any")
 
 
@@ -412,6 +580,11 @@ def _expr_py_match(n: LeanMatch) -> PyExpr:
                 subject if pat.name == "true" else PyUnaryOp(op="not", operand=subject)
             )
             result = PyIfExp(test=cond, body=body, orelse=result)
+        elif isinstance(pat, LeanPatternCtor) and pat.name == "none":
+            cond: PyExpr = PyCompare(
+                left=subject, ops=["=="], comparators=[PyName("None")]
+            )
+            result = PyIfExp(test=cond, body=body, orelse=result)
         elif isinstance(pat, LeanPatternIdent):
             cond = PyCompare(
                 left=subject,
@@ -436,14 +609,20 @@ _EXPR_TO_PY = {
     LeanSort: lambda _: PyName("type"),
     LeanApp: _expr_py_app,
     LeanBinOp: _expr_py_binop,
-    LeanUnaryOp: lambda n: PyUnaryOp(op=n.op, operand=_expr_to_py(n.operand)),
+    LeanUnaryOp: lambda n: PyUnaryOp(
+        op=_UNARY_OP_MAP.get(n.op, n.op), operand=_expr_to_py(n.operand)
+    ),
     LeanLambda: _expr_py_lambda,
     LeanForall: lambda _: PyName("forall"),
     LeanTypeArrow: _expr_py_typearrow,
     LeanTypeSpec: lambda n: _expr_to_py(n.expr),
     LeanIf: _expr_py_if,
     LeanLet: lambda n: _expr_to_py(n.body),
-    LeanProj: lambda n: PyAttribute(value=_expr_to_py(n.expr), attr=n.field),
+    LeanProj: lambda n: PyCall(
+        func=PyName(_sanitize_identifier(n.field)),
+        args=[_expr_to_py(n.expr)],
+        kwargs=[],
+    ),
     LeanListLit: lambda n: PyList(elts=[_expr_to_py(e) for e in n.elts]),
     LeanTupleLit: lambda n: PyTuple(elts=[_expr_to_py(e) for e in n.elts]),
     LeanStructInst: lambda n: PyName(_sanitize_identifier(n.struct_name)),
@@ -468,15 +647,21 @@ def _expr_to_py(node: LeanExpr) -> PyExpr:
 
 def _pattern_to_expr(node: LeanPattern) -> PyExpr:
     if isinstance(node, LeanPatternIdent):
-        return PyName(id=_sanitize_identifier(node.name))
+        name = _sanitize_identifier(node.name)
+        if name == "none":
+            return PyName("None")
+        return PyName(id=name)
     elif isinstance(node, LeanPatternWild):
         return PyName(id="_")
     elif isinstance(node, LeanPatternNum):
         return PyConstant(value=node.value)
     elif isinstance(node, LeanPatternCtor):
-        if node.name in ("true", "false"):
-            return PyConstant(value=node.name == "true")
-        return PyName(id=_sanitize_identifier(node.name))
+        name = _sanitize_identifier(node.name)
+        if name == "none":
+            return PyName("None")
+        if name in ("true", "false"):
+            return PyConstant(value=name == "true")
+        return PyName(id=name)
     elif isinstance(node, LeanPatternOr):
         if node.patterns:
             return PyMatchOr(patterns=[_pattern_to_expr(p) for p in node.patterns])

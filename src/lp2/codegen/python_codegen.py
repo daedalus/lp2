@@ -80,7 +80,10 @@ def _gen_stmt_AnnAssign(node: PyAnnAssign, indent: int) -> str:
 
 def _gen_stmt_If(node: PyIf, indent: int) -> str:
     i = "    " * indent
-    lines = [f"{i}if {_gen_expr(node.test)}:"]
+    test_str = _gen_expr(node.test)
+    if isinstance(node.test, PyIfExp):
+        test_str = f"({test_str})"
+    lines = [f"{i}if {test_str}:"]
     if not node.body:
         lines.append(f"{i}    pass")
     else:
@@ -88,7 +91,10 @@ def _gen_stmt_If(node: PyIf, indent: int) -> str:
             lines.append(_gen_stmt(s, indent + 1))
     if node.orelse:
         if len(node.orelse) == 1 and isinstance(node.orelse[0], PyIf):
-            lines.append(f"{i}elif {_gen_expr(node.orelse[0].test)}:")
+            elif_test = _gen_expr(node.orelse[0].test)
+            if isinstance(node.orelse[0].test, PyIfExp):
+                elif_test = f"({elif_test})"
+            lines.append(f"{i}elif {elif_test}:")
             for s in node.orelse[0].body:
                 lines.append(_gen_stmt(s, indent + 1))
             if node.orelse[0].orelse:
@@ -350,7 +356,10 @@ def _gen_expr_BinOp(node: PyBinOp, indent: int = 0) -> str:
 def _gen_expr_UnaryOp(node: PyUnaryOp, indent: int = 0) -> str:
     operand = _gen_expr(node.operand)
     sep = " " if node.op.isalpha() else ""
-    return f"{node.op}{sep}{operand}"
+    result = f"{node.op}{sep}{operand}"
+    if node.op == "not":
+        result = f"({result})"
+    return result
 
 
 def _gen_expr_Compare(node: PyCompare, indent: int = 0) -> str:
@@ -371,7 +380,10 @@ def _gen_expr_Call(node: PyCall, indent: int = 0) -> str:
 
 
 def _gen_expr_IfExp(node: PyIfExp, indent: int = 0) -> str:
-    return f"{_gen_expr(node.body)} if {_gen_expr(node.test)} else {_gen_expr(node.orelse)}"
+    test_str = _gen_expr(node.test)
+    if isinstance(node.test, PyIfExp):
+        test_str = f"({test_str})"
+    return f"{_gen_expr(node.body)} if {test_str} else {_gen_expr(node.orelse)}"
 
 
 def _gen_expr_Attribute(node: PyAttribute, indent: int = 0) -> str:
@@ -417,11 +429,9 @@ def _gen_expr_Dict(node: PyDict, indent: int = 0) -> str:
 def _gen_expr_Lambda(node: PyLambda, indent: int = 0) -> str:
     args = []
     for arg_name, annotation in node.args:
-        a = arg_name
-        if annotation:
-            a += f": {_gen_expr(annotation)}"
-        args.append(a)
-    return f"lambda {', '.join(args)}: {_gen_expr(node.body)}"
+        args.append(arg_name)
+    result = f"lambda {', '.join(args)}: {_gen_expr(node.body)}"
+    return f"({result})"
 
 
 def _gen_expr_ListComp(node: PyListComp, indent: int = 0) -> str:
