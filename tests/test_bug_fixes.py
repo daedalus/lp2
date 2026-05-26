@@ -66,6 +66,8 @@ class TestMatchOr:
 
     def test_lean_match_or_roundtrip(self):
         """OR pattern must survive Python→Lean→Python round-trip."""
+        from lp2.ast.python_ast import PyImport as PyImportNode
+
         src = (
             "def f(x: int) -> str:\n"
             "    match x:\n"
@@ -78,7 +80,11 @@ class TestMatchOr:
         assert lean
         py_result = lean_to_py(lean)
         module = parse_python(py_result)
-        match_stmt = module.body[0].body[0]
+        # Skip any leading import statements
+        idx = 0
+        while idx < len(module.body) and isinstance(module.body[idx], PyImportNode):
+            idx += 1
+        match_stmt = module.body[idx].body[0]
         first_case = match_stmt.cases[0]
         from lp2.ast.python_ast import PyMatchOr
 

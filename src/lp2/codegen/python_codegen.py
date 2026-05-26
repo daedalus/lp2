@@ -144,7 +144,21 @@ def _gen_stmt_Continue(node: PyContinue, indent: int) -> str:
 
 def _gen_stmt_Import(node: PyImport, indent: int) -> str:
     i = "    " * indent
-    return f"{i}import {', '.join(node.names)}"
+    # Split into regular imports and from-imports
+    regular = []
+    from_imports: dict[str, list[str]] = {}
+    for name in node.names:
+        if "." in name:
+            module, _, attr = name.partition(".")
+            from_imports.setdefault(module, []).append(attr)
+        else:
+            regular.append(name)
+    parts = []
+    if regular:
+        parts.append(f"{i}import {', '.join(regular)}")
+    for module, attrs in from_imports.items():
+        parts.append(f"{i}from {module} import {', '.join(attrs)}")
+    return "\n".join(parts)
 
 
 def _gen_stmt_Raise(node: PyRaise, indent: int) -> str:

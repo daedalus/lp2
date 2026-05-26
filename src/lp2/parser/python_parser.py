@@ -362,7 +362,9 @@ def _convert_stmt(node: py_ast.stmt) -> PyStmt:
     if handler is not None:
         return handler(node)
     raw = _capture_source(node)
-    return PySkipTranspile(source_lines=raw, reason=f"unsupported {type(node).__name__}")
+    return PySkipTranspile(
+        source_lines=raw, reason=f"unsupported {type(node).__name__}"
+    )
 
 
 def _cvt_Name(node: py_ast.expr) -> PyExpr:

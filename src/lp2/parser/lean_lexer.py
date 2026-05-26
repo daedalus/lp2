@@ -177,6 +177,7 @@ class LeanLexer:
         "|||": "PIPEPIPEPIPE",
         "<<<": "LTLTLT",
         ">>>": "GTGTGT",
+        ">>=": "BIND",
     }
 
     _MULTI = {
@@ -202,11 +203,16 @@ class LeanLexer:
 
     _UNICODE_SINGLE = {
         "→": "RARROW",
+        "↔": "IFF",
+        "←": "LARROW",
         "≤": "LE",
         "≥": "GE",
         "≠": "NE",
         "∀": "FORALL",
         "λ": "FUN",
+        "⟨": "LPAREN",
+        "⟩": "RPAREN",
+        "·": "BULLET",
     }
 
     _SINGLE = {

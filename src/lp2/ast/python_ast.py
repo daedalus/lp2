@@ -176,6 +176,7 @@ class PySkipTranspile(PyStmt):
 
     Stores the raw source lines so they can be emitted as Lean comments.
     """
+
     source_lines: list[str]
     reason: str = ""
 

@@ -4,6 +4,11 @@ from lp2.ast.python_ast import *
 _LEAN_TYPE_TO_PY = {
     "Int": PyName("int"),
     "Nat": PyName("int"),
+    "ℕ": PyName("int"),
+    "ℤ": PyName("int"),
+    "ℚ": PyName("float"),
+    "ℝ": PyName("float"),
+    "ℂ": PyName("complex"),
     "Float": PyName("float"),
     "Bool": PyName("bool"),
     "String": PyName("str"),
@@ -17,13 +22,28 @@ _LEAN_TYPE_TO_PY = {
 }
 
 
+def _cmd_to_stmts(node: LeanCommand) -> list[PyStmt]:
+    """Convert a command to zero or more Python statements.
+
+    Handles sections and namespaces by inlining their children
+    (directory structure replaces the namespace wrapping).
+    """
+    if isinstance(node, (LeanSection, LeanNamespace)):
+        result: list[PyStmt] = []
+        for c in node.commands:
+            result.extend(_cmd_to_stmts(c))
+        return result
+    stmt = _cmd_to_stmt(node)
+    return [stmt] if stmt is not None else []
+
+
 def lean_to_py(node: LeanNode) -> PyNode:
     if isinstance(node, LeanModule):
         body = []
         for cmd in node.body:
-            py_stmt = _cmd_to_stmt(cmd)
-            if py_stmt:
-                body.append(py_stmt)
+            body.extend(_cmd_to_stmts(cmd))
+        # Prepend typing imports for Any/Optional fallback type annotations
+        body.insert(0, PyImport(names=["typing.Any", "typing.Optional"]))
         return PyModule(body=body)
     raise ValueError(f"Unknown node: {type(node).__name__}")
 
@@ -34,8 +54,10 @@ def lean_to_py(node: LeanNode) -> PyNode:
 
 
 def _cmd_to_stmt_ns(n: LeanNamespace) -> PyStmt | None:
-    stmts = [_cmd_to_stmt(c) for c in n.commands]
-    return PyClassDef(name=n.name, bases=[], body=[s for s in stmts if s])
+    stmts = []
+    for c in n.commands:
+        stmts.extend(_cmd_to_stmts(c))
+    return PyClassDef(name=n.name, bases=[], body=stmts)
 
 
 _CMD_TO_STMT = {
@@ -59,16 +81,28 @@ def _cmd_to_stmt(node: LeanCommand) -> PyStmt | None:
 
 
 def _def_to_func(node: LeanDef) -> PyFunctionDef:
-    name = node.name
+    name = node.name.replace(".", "_")
     py_args = []
     for p in node.params:
         py_ann = _lean_type_to_py(p.type) if p.type else None
         py_default = _expr_to_py(p.default) if p.default else None
         py_args.append((p.name, py_ann, py_default))
 
-    py_return = _lean_type_to_py(node.return_type) if node.return_type else None
+    # For theorems/lemmas, use the statement (return type) as the body.
+    # Regular defs use the value expression as body.
+    if node.is_theorem or node.is_lemma:
+        if node.return_type:
+            body = _expr_to_stmts(node.return_type)
+        else:
+            body = [PyPass()]
+        py_return = PyName("bool") if node.return_type else None
+    elif node.value and isinstance(node.value, LeanBy) and node.return_type:
+        body = _expr_to_stmts(node.return_type)
+        py_return = PyName("bool")
+    else:
+        py_return = _lean_type_to_py(node.return_type) if node.return_type else None
+        body = _expr_to_stmts(node.value) if node.value else [PyPass()]
 
-    body = _expr_to_stmts(node.value) if node.value else [PyPass()]
     if (
         py_return == PyName("None")
         or isinstance(py_return, PyName)
@@ -283,6 +317,7 @@ _OP_MAP = {
     "||": "or",
     "∧": "and",
     "∨": "or",
+    "↔": "==",
     "::": "::",
     "|>": "|>",
     "^": "^",

@@ -4,6 +4,7 @@ from lp2.ast.lean4_ast import *
 from lp2.parser.lean_lexer import LeanLexer, Token
 
 PRECEDENCE = {
+    "IFF": 2,
     "RARROW": 1,
     "COLON": 2,
     "PIPEPIPE": 2,
@@ -23,6 +24,7 @@ PRECEDENCE = {
     "DOUBLECOLON": 7,
     "LTLT": 7,
     "GTGT": 7,
+    "BIND": 7,
     "PLUS": 8,
     "MINUS": 8,
     "STAR": 9,
@@ -56,8 +58,10 @@ BINARY_OPS = {
     "PIPEPIPEPIPE": "|||",
     "LTLT": "<<",
     "GTGT": ">>",
+    "BIND": ">>=",
     "HAT": "^",
     "RARROW": "→",
+    "IFF": "↔",
     "PIPEOP": "|>",
 }
 
@@ -95,7 +99,7 @@ class LeanParser:
         while self._peek().kind not in kinds and self._peek().kind != "EOF":
             self._advance()
 
-    # ---- Top Level ----
+    # ---- Shared top-level command dispatch ----
 
     _MODULE_DISPATCH = {
         "OPEN": "_parse_open",
@@ -113,9 +117,47 @@ class LeanParser:
         "VARIABLE": "_parse_variable",
     }
 
+    def _skip_attributes_and_visibility(self):
+        """Skip @[attr] blocks and public/private/protected modifiers before a command."""
+        while True:
+            if self._peek().kind == "AT":
+                self._advance()  # consume @
+                if self._peek().kind == "LBRACK":
+                    self._advance()  # consume [
+                    depth = 1
+                    while depth > 0 and self._peek().kind != "EOF":
+                        if self._peek().kind == "LBRACK":
+                            depth += 1
+                        elif self._peek().kind == "RBRACK":
+                            depth -= 1
+                        self._advance()
+                continue
+            if self._peek().kind in ("PUBLIC", "PRIVATE", "PROTECTED"):
+                self._advance()
+                continue
+            break
+
+    def _parse_cmd(self) -> LeanCommand | None:
+        """Parse a single top-level command, or return None if no command is recognized.
+
+        Shared by parse_module, _parse_section, and _parse_namespace.
+        """
+        self._skip_attributes_and_visibility()
+        kind = self._peek().kind
+        handler = self._MODULE_DISPATCH.get(kind)
+        if handler is not None:
+            return getattr(self, handler)()
+        if kind in ("HASH_EVAL", "HASH_CHECK"):
+            self._advance()
+            return LeanExample(expr=self._parse_expr())
+        return None
+
     def parse_module(self) -> LeanModule:
         imports: list[LeanOpen] = []
         body: list[LeanNode] = []
+        # skip optional `module` header
+        if self._peek().value == "module":
+            self._advance()
         while self._peek().kind != "EOF":
             kind = self._peek().kind
             local = False
@@ -123,15 +165,11 @@ class LeanParser:
                 local = True
                 self._advance()
                 kind = self._peek().kind
-            handler = self._MODULE_DISPATCH.get(kind)
-            if handler is not None:
-                node = getattr(self, handler)()
-                if local and isinstance(node, LeanInstance):
-                    node.is_local = True
-                body.append(node)
-            elif kind in ("HASH_EVAL", "HASH_CHECK"):
-                self._advance()
-                body.append(LeanExample(expr=self._parse_expr()))
+            cmd = self._parse_cmd()
+            if cmd is not None:
+                if local and isinstance(cmd, LeanInstance):
+                    cmd.is_local = True
+                body.append(cmd)
             else:
                 try:
                     body.append(self._parse_def())
@@ -167,6 +205,10 @@ class LeanParser:
             self._expect("DEF")
         name_token = self._expect("ID")
         name = name_token.value
+        # Handle qualified names like dist.triangle_inequality
+        while self._peek().kind == "DOT" and self._peek(1).kind == "ID":
+            self._advance()  # consume DOT
+            name += "." + self._expect("ID").value
 
         params = []
         while self._peek().kind in ("ID", "LPAREN", "LBRACE", "LBRACK"):
@@ -391,14 +433,17 @@ class LeanParser:
         self._expect("NAMESPACE")
         name = self._expect("ID").value
         commands = []
+        max_iter = 5000
+        iter_count = 0
         while self._peek().kind not in ("EOF",) and self._peek().value != "end":
-            commands.append(
-                self._parse_def()
-                if self._peek().kind == "DEF"
-                else self._parse_inductive()
-                if self._peek().kind == "INDUCTIVE"
-                else self._parse_namespace()
-            )
+            if iter_count > max_iter:
+                raise RuntimeError("_parse_namespace: max iterations exceeded")
+            iter_count += 1
+            cmd = self._parse_cmd()
+            if cmd is not None:
+                commands.append(cmd)
+            else:
+                break
         if self._peek().value == "end":
             self._advance()
         return LeanNamespace(name=name, commands=commands)
@@ -409,11 +454,17 @@ class LeanParser:
         while self._peek().kind in ("LPAREN", "LBRACE", "LBRACK"):
             params.extend(self._parse_binders())
         commands = []
+        max_iter = 10000
+        iter_count = 0
         while self._peek().kind not in ("EOF",) and self._peek().value != "end":
-            try:
-                commands.append(self._parse_def())
-            except SyntaxError:
-                break
+            if iter_count > max_iter:
+                raise RuntimeError("_parse_section: max iterations exceeded")
+            iter_count += 1
+            cmd = self._parse_cmd()
+            if cmd is not None:
+                commands.append(cmd)
+            else:
+                self._advance()
         if self._peek().value == "end":
             self._advance()
         return LeanSection(params=params, commands=commands)
@@ -449,7 +500,10 @@ class LeanParser:
     )
 
     def _handle_binop(self, lhs: LeanExpr, prec: int, op: str) -> LeanExpr:
-        rhs = self._parse_expr(prec)
+        # Left-associative by default: RHS must be at least prec + 1
+        # Right-assoc operators (→, ::) pass prec directly so A→B→C = A→(B→C)
+        rhs_prec = prec if op in ("→", "::") else prec + 1
+        rhs = self._parse_expr(rhs_prec)
         if op == "→":
             return LeanTypeArrow(from_type=lhs, to_type=rhs)
         if op == ":":
@@ -474,7 +528,10 @@ class LeanParser:
                 lhs = self._handle_binop(lhs, prec, op)
             elif kind == "DOT":
                 self._advance()
-                lhs = LeanProj(expr=lhs, field=self._expect("ID").value)
+                if self._peek().kind == "NUM":
+                    lhs = LeanProj(expr=lhs, field=self._advance().value)
+                else:
+                    lhs = LeanProj(expr=lhs, field=self._expect("ID").value)
             elif kind in self._TOK_IS_ATOM and PRECEDENCE.get("APP", 13) >= min_prec:
                 lhs = LeanApp(func=lhs, arg=self._parse_prefix())
             else:
@@ -575,6 +632,11 @@ class LeanParser:
         self._advance()
         return self._parse_expr()
 
+    def _plarrow(self) -> LeanExpr:
+        """Handle ← (bind) as a prefix expression inside do blocks: (← expr)."""
+        self._advance()  # consume ←
+        return self._parse_expr()
+
     _PREFIX_DISPATCH = {
         "ID": "_pid",
         "NUM": "_pnum",
@@ -600,6 +662,7 @@ class LeanParser:
         "DOT": "_pdot",
         "HASH_EVAL": "_phash",
         "HASH_CHECK": "_phash",
+        "LARROW": "_plarrow",
     }
 
     def _parse_prefix(self) -> LeanExpr | None:
@@ -667,6 +730,9 @@ class LeanParser:
                 elif self._peek().kind == "WILD":
                     self._advance()
                     params.append(LeanParam(name="_", type=None))
+                elif self._peek().kind == "ID":
+                    # Bare binder like `∀ n, ...` (n is the binder, type is inferred)
+                    params.append(LeanParam(name=self._advance().value, type=None))
                 else:
                     params.extend(self._parse_binders())
             else:
@@ -821,6 +887,7 @@ class LeanParser:
             elif self._peek().kind == "ID" and self.tokens[self.pos + 1].kind in (
                 "ARROW",
                 "COLONEQ",
+                "LARROW",
             ):
                 pat = self._parse_pattern()
                 arrow = self._advance()
@@ -829,6 +896,7 @@ class LeanParser:
             elif self._peek().kind == "WILD" and self.tokens[self.pos + 1].kind in (
                 "ARROW",
                 "COLONEQ",
+                "LARROW",
             ):
                 pat = self._parse_pattern()
                 self._advance()
@@ -921,5 +989,58 @@ class LeanParser:
 
     # ---- Tactics ----
 
+    _COMMAND_START_KINDS = frozenset(
+        {
+            "DEF",
+            "THEOREM",
+            "LEMMA",
+            "INDUCTIVE",
+            "STRUCTURE",
+            "CLASS",
+            "INSTANCE",
+            "AXIOM",
+            "OPEN",
+            "NAMESPACE",
+            "SECTION",
+            "VARIABLE",
+        }
+    )
+
+    def _is_command_start(self) -> bool:
+        """Check if tokens at current position start a new command.
+
+        Skips over @[attr] and public/private/protected modifiers
+        without consuming them (restores position after check).
+        """
+        save = self.pos
+        self._skip_attributes_and_visibility()
+        tok = self._peek()
+        is_cmd = tok.kind in self._COMMAND_START_KINDS or tok.value == "end"
+        self.pos = save
+        return is_cmd
+
+    def _skip_tactic_body(self):
+        """Consume all tokens until the next command-starting token.
+
+        Tracks bracket depth so nested brackets inside tactics are handled.
+        Stops before @[attr] that precedes a command keyword.
+        """
+        depth = 0
+        max_iter = 10000
+        iter_count = 0
+        while self._peek().kind not in ("EOF",):
+            if iter_count > max_iter:
+                raise RuntimeError("_skip_tactic_body: max iterations exceeded")
+            iter_count += 1
+            if depth == 0 and self._is_command_start():
+                break
+            tok = self._peek()
+            if tok.kind in ("LBRACK", "LPAREN", "LBRACE"):
+                depth += 1
+            elif tok.kind in ("RBRACK", "RPAREN", "RBRACE"):
+                depth -= 1
+            self._advance()
+
     def _parse_tactic(self) -> LeanTactic:
+        self._skip_tactic_body()
         return LeanHole()

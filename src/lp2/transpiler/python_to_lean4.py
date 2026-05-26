@@ -250,7 +250,14 @@ def _expr_list(node: PyList) -> LeanExpr:
 
 
 def py_to_lean(node: PyNode) -> LeanNode:
-    global _uses_subscript, _uses_list, _uses_set, _uses_popcount, _imported_modules, _generated_helpers, _transpiling_helper
+    global \
+        _uses_subscript, \
+        _uses_list, \
+        _uses_set, \
+        _uses_popcount, \
+        _imported_modules, \
+        _generated_helpers, \
+        _transpiling_helper
     _uses_subscript = False
     _uses_list = False
     _uses_set = False
@@ -412,7 +419,11 @@ def _func_to_lean(node: PyFunctionDef) -> LeanDef:
     else:
         return_type = LeanIdent("Unit")
 
-    body_stmts = [s for s in (_transform_generator_body(node.body) if is_generator else node.body) if not isinstance(s, PySkipTranspile)]
+    body_stmts = [
+        s
+        for s in (_transform_generator_body(node.body) if is_generator else node.body)
+        if not isinstance(s, PySkipTranspile)
+    ]
 
     if len(body_stmts) == 1 and isinstance(body_stmts[0], PyReturn):
         body = (
@@ -433,7 +444,9 @@ def _func_to_lean(node: PyFunctionDef) -> LeanDef:
     tb = None
     dec = None
     if USE_NAT and is_recursive and body is not None:
-        nat_params = [p for p in params if isinstance(p.type, LeanIdent) and p.type.name == "Nat"]
+        nat_params = [
+            p for p in params if isinstance(p.type, LeanIdent) and p.type.name == "Nat"
+        ]
         if len(nat_params) == 1:
             tb = LeanIdent(nat_params[0].name)
             dec = "omega"
@@ -1553,7 +1566,7 @@ def _expr_bool_op(node: PyBoolOp) -> LeanExpr:
 _STDLIB_MAP: list[tuple] = []
 
 
-def _stdlib_register(matcher):
+def _stdlib_register(matcher) -> None:
     """Decorator to register a stdlib pattern matcher."""
     _STDLIB_MAP.append(matcher)
     return matcher
@@ -1562,11 +1575,7 @@ def _stdlib_register(matcher):
 @_stdlib_register
 def _match_pow(node: PyCall) -> dict | None:
     """pow(x, y) -> x ^ y"""
-    if (
-        isinstance(node.func, PyName)
-        and node.func.id == "pow"
-        and len(node.args) == 2
-    ):
+    if isinstance(node.func, PyName) and node.func.id == "pow" and len(node.args) == 2:
         return {"base": node.args[0], "exp": node.args[1]}
     return None
 
@@ -1652,7 +1661,9 @@ def _build_math_factorial(match: dict) -> LeanExpr:
             _transpiling_helper = False
             if lean_def is not None:
                 _generated_helpers.append(lean_def)
-                return LeanApp(func=LeanIdent("factorial"), arg=_expr_to_lean(match["x"]))
+                return LeanApp(
+                    func=LeanIdent("factorial"), arg=_expr_to_lean(match["x"])
+                )
         except (OSError, TypeError):
             _transpiling_helper = False
 

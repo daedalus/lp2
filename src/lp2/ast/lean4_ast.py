@@ -128,6 +128,7 @@ class LeanSection(LeanCommand):
 @dataclass
 class LeanRaw(LeanCommand):
     """Raw text emitted as-is (for no_transpile fallback)."""
+
     text: str
 
 
