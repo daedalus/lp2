@@ -88,19 +88,31 @@ def _def_to_func(node: LeanDef) -> PyFunctionDef:
         py_default = _expr_to_py(p.default) if p.default else None
         py_args.append((p.name, py_ann, py_default))
 
+    # Lif ∀-binders from return_type into function parameters.
+    # e.g. `theorem f (m : ℕ) : ∀ n, ...` makes `n` a function param.
+    existing_names = {p.name for p in node.params}
+    return_type_expr = node.return_type
+    while isinstance(return_type_expr, LeanForall):
+        for fp in return_type_expr.params:
+            if fp.name not in existing_names:
+                py_ann = _lean_type_to_py(fp.type) if fp.type else None
+                py_args.append((fp.name, py_ann, None))
+                existing_names.add(fp.name)
+        return_type_expr = return_type_expr.body
+
     # For theorems/lemmas, use the statement (return type) as the body.
     # Regular defs use the value expression as body.
     if node.is_theorem or node.is_lemma:
-        if node.return_type:
-            body = _expr_to_stmts(node.return_type)
+        if return_type_expr:
+            body = _expr_to_stmts(return_type_expr)
         else:
             body = [PyPass()]
-        py_return = PyName("bool") if node.return_type else None
-    elif node.value and isinstance(node.value, LeanBy) and node.return_type:
-        body = _expr_to_stmts(node.return_type)
+        py_return = PyName("bool") if return_type_expr else None
+    elif node.value and isinstance(node.value, LeanBy) and return_type_expr:
+        body = _expr_to_stmts(return_type_expr)
         py_return = PyName("bool")
     else:
-        py_return = _lean_type_to_py(node.return_type) if node.return_type else None
+        py_return = _lean_type_to_py(return_type_expr) if return_type_expr else None
         body = _expr_to_stmts(node.value) if node.value else [PyPass()]
 
     if (
@@ -328,6 +340,8 @@ _OP_MAP = {
 def _expr_py_binop(n: LeanBinOp) -> PyExpr:
     left = _expr_to_py(n.left)
     right = _expr_to_py(n.right)
+    if n.op == ">>=":
+        return PyCall(func=PyName("bind"), args=[left, right], kwargs=[])
     py_op = _OP_MAP.get(n.op, n.op)
     if py_op == "::":
         if isinstance(right, PyList):
@@ -412,7 +426,9 @@ _EXPR_TO_PY = {
     LeanTupleLit: lambda n: PyTuple(elts=[_expr_to_py(e) for e in n.elts]),
     LeanStructInst: lambda n: PyName(n.struct_name),
     LeanMatch: _expr_py_match,
-    LeanDo: lambda _: PyName("do_block"),
+    LeanDo: lambda n: (
+        _expr_to_py(n.last) if not n.stmts and n.last else PyName("do_block")
+    ),
     LeanCalc: lambda _: PyName("calc_block"),
     LeanBy: lambda _: PyName("by_block"),
     LeanNamedArg: lambda n: _expr_to_py(n.value),

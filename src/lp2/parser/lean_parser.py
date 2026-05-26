@@ -53,7 +53,6 @@ BINARY_OPS = {
     "AMP": "&&",
     "AMPAMP": "&&",
     "AMPAMPAMP": "&&&",
-    "PIPE": "||",
     "PIPEPIPE": "||",
     "PIPEPIPEPIPE": "|||",
     "LTLT": "<<",
