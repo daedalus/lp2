@@ -32,6 +32,7 @@ lint = [
     "prospector[with_ruff,with_mypy]",
     "semgrep",
     "vulture",
+    "impactguard",
 ]
 all = ["lp2[dev,test,lint]"]
 

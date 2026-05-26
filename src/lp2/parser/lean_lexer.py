@@ -427,6 +427,10 @@ class LeanLexer:
             self._skip_comment()
             return
 
+        if ch == "#":
+            self._tokenize_hash(pos, line, col)
+            return
+
         if ch == '"':
             self._advance()
             self.tokens.append(Token("STR", self._read_string('"'), pos, line, col))
@@ -476,6 +480,29 @@ class LeanLexer:
             self.tokens.append(Token(self._SINGLE[ch], ch, pos, line, col))
             return True
         return False
+
+    _HASH_CMDS = {
+        "eval": "HASH_EVAL",
+        "check": "HASH_CHECK",
+        "print": "HASH_PRINT",
+    }
+
+    def _tokenize_hash(self, pos: int, line: int, col: int) -> None:
+        self._advance()
+        nxt = self._peek()
+        if nxt is not None and nxt.isalpha():
+            ident_start = self.pos
+            while self.pos < len(self.source) and self._peek().isalnum():
+                self._advance()
+            word = self.source[ident_start : self.pos]
+            kind = self._HASH_CMDS.get(word)
+            if kind is not None:
+                self.tokens.append(Token(kind, "#" + word, pos, line, col))
+            else:
+                self.tokens.append(Token("HASH", "#", pos, line, col))
+                self.tokens.append(Token("ID", word, pos + 1, line, col))
+        else:
+            self.tokens.append(Token("HASH", "#", pos, line, col))
 
     def _tokenize_char(self, pos: int, line: int, col: int) -> None:
         self._advance()

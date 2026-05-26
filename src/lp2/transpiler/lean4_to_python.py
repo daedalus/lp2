@@ -97,7 +97,17 @@ _CMD_TO_STMT = {
     LeanClass: lambda n: _structure_to_class(n),
     LeanInductive: lambda n: _inductive_to_class(n),
     LeanAxiom: lambda _: PyPass(),
-    LeanExample: lambda n: PyExprStmt(expr=_expr_to_py(n.expr)) if n.expr else None,
+    LeanExample: lambda n: (
+        PyExprStmt(
+            expr=PyCall(
+                func=PyName("print"),
+                args=[_expr_to_py(n.expr)],
+            )
+        )
+        if n.expr
+        else None
+    ),
+
     LeanOpen: lambda n: PyImport(
         names=[_sanitize_identifier(name) for name in n.names]
     ),
@@ -393,7 +403,7 @@ _OP_MAP = {
     "+": "+",
     "-": "-",
     "*": "*",
-    "/": "/",
+    "/": "//",
     "%": "%",
     "=": "==",
     "==": "==",
