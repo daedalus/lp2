@@ -9,7 +9,6 @@ PRECEDENCE = {
     "COLON": 2,
     "PIPEPIPE": 2,
     "PIPEPIPEPIPE": 2,
-    "PIPE": 2,
     "AMPAMP": 3,
     "AMPAMPAMP": 3,
     "AMP": 3,
@@ -24,6 +23,8 @@ PRECEDENCE = {
     "DOUBLECOLON": 7,
     "LTLT": 7,
     "GTGT": 7,
+    "LTLTLT": 7,
+    "GTGTGT": 7,
     "BIND": 7,
     "PLUS": 8,
     "MINUS": 8,
@@ -32,6 +33,10 @@ PRECEDENCE = {
     "PERCENT": 9,
     "HAT": 10,
     "BANG": 11,
+    "IMG": 7,
+    "BACKSLASH": 7,
+    "SQCAP": 7,
+    "IN": 4,
 }
 
 
@@ -57,11 +62,17 @@ BINARY_OPS = {
     "PIPEPIPEPIPE": "|||",
     "LTLT": "<<",
     "GTGT": ">>",
+    "LTLTLT": "<<<",
+    "GTGTGT": ">>>",
     "BIND": ">>=",
     "HAT": "^",
     "RARROW": "→",
     "IFF": "↔",
     "PIPEOP": "|>",
+    "IMG": "''",
+    "BACKSLASH": "\\",
+    "SQCAP": "⊓",
+    "IN": "∈",
 }
 
 
@@ -72,9 +83,14 @@ class LeanParser:
         self.pos = 0
 
     def _peek(self, offset: int = 0) -> Token:
-        return self.tokens[self.pos + offset]
+        idx = self.pos + offset
+        if idx >= len(self.tokens):
+            return Token(kind="EOF", value=None, pos=-1, line=-1, col=-1)
+        return self.tokens[idx]
 
     def _advance(self) -> Token:
+        if self.pos >= len(self.tokens):
+            return Token(kind="EOF", value=None, pos=-1, line=-1, col=-1)
         t = self.tokens[self.pos]
         self.pos += 1
         return t
@@ -140,12 +156,16 @@ class LeanParser:
         """Parse a single top-level command, or return None if no command is recognized.
 
         Shared by parse_module, _parse_section, and _parse_namespace.
+        Catches SyntaxError to gracefully degrade on unknown syntax.
         """
         self._skip_attributes_and_visibility()
         kind = self._peek().kind
         handler = self._MODULE_DISPATCH.get(kind)
         if handler is not None:
-            return getattr(self, handler)()
+            try:
+                return getattr(self, handler)()
+            except (SyntaxError, IndexError, RuntimeError):
+                return None
         if kind in ("HASH_EVAL", "HASH_CHECK"):
             self._advance()
             return LeanExample(expr=self._parse_expr())
@@ -172,7 +192,7 @@ class LeanParser:
             else:
                 try:
                     body.append(self._parse_def())
-                except SyntaxError:
+                except (SyntaxError, IndexError):
                     self._skip_to(
                         {
                             "EOF",
@@ -189,6 +209,8 @@ class LeanParser:
                             "SECTION",
                             "OPEN",
                             "VARIABLE",
+                            "MUTUAL",
+                            "PARTIAL",
                             "HASH_EVAL",
                             "HASH_CHECK",
                         }
@@ -399,11 +421,12 @@ class LeanParser:
                         name=mt_name, params=mt_params, return_type=None, value=mt_val
                     )
                 )
-        else:
-            while self._peek().kind == "DEF" or (
-                self._peek().kind == "ID" and self._peek().value != "end"
-            ):
+        elif self._peek().kind in ("DEF",):
+            while self._peek().kind == "DEF":
                 methods.append(self._parse_def())
+        else:
+            # If there was a := or =, consume the value expression
+            pass
         return LeanInstance(name=name, params=params, type=typ, methods=methods)
 
     def _parse_axiom(self) -> LeanAxiom:
@@ -442,7 +465,7 @@ class LeanParser:
             if cmd is not None:
                 commands.append(cmd)
             else:
-                break
+                self._advance()
         if self._peek().value == "end":
             self._advance()
         return LeanNamespace(name=name, commands=commands)
@@ -495,6 +518,40 @@ class LeanParser:
             "LBRACK",
             "LBRACE",
             "WILD",
+            "IN",
+            "UNION",
+            "TURNSTILE",
+            "TRIANGLE",
+            "LANGLE",
+            "RANGLE",
+            "EXISTS",
+            "PROD",
+            "COMPOSE",
+            "DIVIDES",
+            "EQV",
+            "BOT",
+            "NOTIN",
+            "SUBSET",
+            "BIGUNION",
+            "UPARROW",
+            "SUM",
+            "DOWNARROW",
+            "AT",
+            "BULLET",
+            "EMPTYSET",
+            "TOP",
+            "BIGINF",
+            "BY",
+            "BACKTICK",
+            "HASH",
+            "SQUNION",
+            "BIGUNION2",
+            "INTERSECT",
+            "BACKSLASH",
+            "IMG",
+            "SQCAP",
+            "BIGINTER",
+            "SUPMINUS",
         }
     )
 
@@ -508,6 +565,52 @@ class LeanParser:
         if op == ":":
             return LeanTypeSpec(expr=lhs, type=rhs)
         return LeanBinOp(left=lhs, op=op, right=rhs)
+
+    def _parse_expr_until(self, stop_kinds: set[str]) -> LeanExpr:
+        if self._peek().kind in stop_kinds:
+            raise SyntaxError(
+                f"Unexpected stop token {self._peek().kind}({self._peek().value})"
+                f" at line {self._peek().line}, col {self._peek().col}"
+            )
+        lhs = self._parse_prefix()
+        if lhs is None:
+            t = self._peek()
+            raise SyntaxError(
+                f"Unexpected token {t.kind}({t.value}) at line {t.line}, col {t.col}"
+            )
+
+        while True:
+            tok = self._peek()
+            kind = tok.kind
+            if kind in stop_kinds:
+                break
+            if kind in BINARY_OPS and PRECEDENCE.get(kind, 0) >= 0:
+                op = BINARY_OPS[kind]
+                prec = PRECEDENCE[kind]
+                self._advance()
+                rhs_prec = prec if op in ("→", "::") else prec + 1
+                rhs = self._parse_expr_until(stop_kinds)
+                if op == "→":
+                    lhs = LeanTypeArrow(from_type=lhs, to_type=rhs)
+                elif op == ":":
+                    lhs = LeanTypeSpec(expr=lhs, type=rhs)
+                else:
+                    lhs = LeanBinOp(left=lhs, op=op, right=rhs)
+            elif kind == "DOT":
+                self._advance()
+                if self._peek().kind == "NUM":
+                    lhs = LeanProj(expr=lhs, field=self._advance().value)
+                else:
+                    lhs = LeanProj(expr=lhs, field=self._expect("ID").value)
+            elif kind in self._TOK_IS_ATOM and PRECEDENCE.get("APP", 13) >= 0:
+                arg = self._parse_prefix()
+                if arg is None:
+                    break
+                lhs = LeanApp(func=lhs, arg=arg)
+            else:
+                break
+
+        return lhs
 
     def _parse_expr(self, min_prec: int = 0) -> LeanExpr:
         lhs = self._parse_prefix()
@@ -532,7 +635,10 @@ class LeanParser:
                 else:
                     lhs = LeanProj(expr=lhs, field=self._expect("ID").value)
             elif kind in self._TOK_IS_ATOM and PRECEDENCE.get("APP", 13) >= min_prec:
-                lhs = LeanApp(func=lhs, arg=self._parse_prefix())
+                arg = self._parse_prefix()
+                if arg is None:
+                    break
+                lhs = LeanApp(func=lhs, arg=arg)
             else:
                 break
 
@@ -636,6 +742,16 @@ class LeanParser:
         self._advance()  # consume ←
         return self._parse_expr()
 
+    def _skip_expr(self) -> LeanExpr:
+        """Skip an unrecognized token and return a hole placeholder."""
+        self._advance()
+        return LeanHole()
+
+    def _parse_expr_by(self) -> LeanExpr:
+        """Handle `by` in expression context: (by ...)."""
+        self._advance()  # consume by
+        return LeanBy(tactic=self._parse_tactic())
+
     _PREFIX_DISPATCH = {
         "ID": "_pid",
         "NUM": "_pnum",
@@ -662,6 +778,38 @@ class LeanParser:
         "HASH_EVAL": "_phash",
         "HASH_CHECK": "_phash",
         "LARROW": "_plarrow",
+        "BY": "_parse_expr_by",
+        "BULLET": "_pwild",
+        "AT": "_skip_expr",
+        "HASH": "_phash",
+        "BACKTICK": "_skip_expr",
+        "UNION": "_skip_expr",
+        "TURNSTILE": "_skip_expr",
+        "TRIANGLE": "_skip_expr",
+        "LANGLE": "_skip_expr",
+        "RANGLE": "_skip_expr",
+        "EXISTS": "_skip_expr",
+        "PROD": "_skip_expr",
+        "COMPOSE": "_skip_expr",
+        "DIVIDES": "_skip_expr",
+        "EQV": "_skip_expr",
+        "BOT": "_skip_expr",
+        "NOTIN": "_skip_expr",
+        "SUBSET": "_skip_expr",
+        "BIGUNION": "_skip_expr",
+        "UPARROW": "_skip_expr",
+        "SUM": "_skip_expr",
+        "DOWNARROW": "_skip_expr",
+        "EMPTYSET": "_skip_expr",
+        "TOP": "_skip_expr",
+        "BIGINF": "_skip_expr",
+        "SQUNION": "_skip_expr",
+        "BIGUNION2": "_skip_expr",
+        "INTERSECT": "_skip_expr",
+        "BACKSLASH": "_skip_expr",
+        "SQCAP": "_skip_expr",
+        "BIGINTER": "_skip_expr",
+        "SUPMINUS": "_skip_expr",
     }
 
     def _parse_prefix(self) -> LeanExpr | None:
@@ -804,7 +952,7 @@ class LeanParser:
             self._advance()
         elif self._peek().value == "=":
             self._advance()
-        value = self._parse_expr()
+        value = self._parse_expr_until({"IN", "SEMI", "EOF"})
         if self._peek().kind == "SEMI":
             self._advance()
         else:

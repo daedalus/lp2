@@ -188,6 +188,7 @@ class LeanLexer:
         "++": "PLUSPLUS",
         "|>": "PIPEOP",
         "<|": "PIPEOP",
+        "''": "IMG",
         "≥": "GE",
         "≤": "LE",
         "≠": "NE",
@@ -213,6 +214,42 @@ class LeanLexer:
         "⟨": "LPAREN",
         "⟩": "RPAREN",
         "·": "BULLET",
+        "∧": "AMPAMP",
+        "∨": "PIPEPIPE",
+        "¬": "BANG",
+        "×": "STAR",
+        "≡": "DEQ",
+        "↦": "RARROW",
+        "∈": "IN",
+        "∪": "UNION",
+        "⊢": "TURNSTILE",
+        "⋖": "LT",
+        "▸": "TRIANGLE",
+        "«": "LANGLE",
+        "»": "RANGLE",
+        "∃": "EXISTS",
+        "∏": "PROD",
+        "∘": "COMPOSE",
+        "∣": "DIVIDES",
+        "≃": "EQV",
+        "⊥": "BOT",
+        "⦃": "LBRACE",
+        "⦄": "RBRACE",
+        "∉": "NOTIN",
+        "⊆": "SUBSET",
+        "⨆": "BIGUNION",
+        "↑": "UPARROW",
+        "∑": "SUM",
+        "↓": "DOWNARROW",
+        "∅": "EMPTYSET",
+        "⊤": "TOP",
+        "⨅": "BIGINF",
+        "⊔": "SQUNION",
+        "⋃": "BIGUNION2",
+        "∩": "INTERSECT",
+        "⊓": "SQCAP",
+        "⋂": "BIGINTER",
+        "⁻": "SUPMINUS",
     }
 
     _SINGLE = {
@@ -243,6 +280,8 @@ class LeanLexer:
         "&": "AMP",
         "?": "QMARK",
         "#": "HASH",
+        "`": "BACKTICK",
+        "\\": "BACKSLASH",
     }
 
     def _tokenize(self) -> None:
@@ -270,6 +309,11 @@ class LeanLexer:
             return
 
         if ch == "'":
+            if self._peek(1) == "'":
+                self._advance()
+                self._advance()
+                self.tokens.append(Token("IMG", "''", pos, line, col))
+                return
             self._tokenize_char(pos, line, col)
             return
 

@@ -80,5 +80,6 @@ class TestRoundTripLeanPyLean:
     def test_let_roundtrip(self):
         source = "def f (x : Int) : Int := let y := x + 1 in y * 2\n"
         middle = lean_to_py(source)
+        assert middle
         result = py_to_lean(middle)
         assert result

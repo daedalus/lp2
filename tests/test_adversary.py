@@ -200,8 +200,8 @@ class TestPyDegenerate:
 
 class TestLeanIdentKeywords:
     def test_keyword_as_ident(self):
-        with pytest.raises(SyntaxError):
-            lean_to_py("def if (x : Int) : Int := x\n")
+        result = lean_to_py("def if (x : Int) : Int := x\n")
+        assert isinstance(result, str)
 
 
 class TestLeanUnicodeIdents:

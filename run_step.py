@@ -25,6 +25,12 @@ STEP0_FILES = [
     "Data/Nat/PSub.lean",
 ]
 
+# All files in Data/Nat/ — for testing the full pipeline
+ALL_NAT_FILES = sorted(
+    str(p.relative_to(MATHLIB_ROOT))
+    for p in MATHLIB_ROOT.glob("Data/Nat/*.lean")
+)
+
 
 def transpile_file(lean_path: Path, relative: str, dry_run: bool = False) -> bool:
     """Transpile a single .lean file to .py under OUTPUT_ROOT.
@@ -48,7 +54,7 @@ def transpile_file(lean_path: Path, relative: str, dry_run: bool = False) -> boo
             f.write(py_code)
         return True
     except Exception as e:
-        print(f"    FAIL: {e}", file=sys.stderr)
+        print(f"    [{lean_path.name}] FAIL: {e}", file=sys.stderr)
         return False
 
 
@@ -59,7 +65,12 @@ def main():
     parser.add_argument("--step", type=int, default=0, help="Feature maturity level")
     args = parser.parse_args()
 
-    files = args.files or STEP0_FILES
+    if args.files:
+        files = args.files
+    elif args.step == 0:
+        files = STEP0_FILES
+    else:
+        files = ALL_NAT_FILES
 
     success = 0
     failure = 0

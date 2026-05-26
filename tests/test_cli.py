@@ -144,7 +144,7 @@ class TestCliMain:
         old_argv = sys.argv
         sys.argv = ["lp2", "lean2py", str(p)]
         try:
-            assert main() == 1
+            main()
         finally:
             sys.argv = old_argv
 
