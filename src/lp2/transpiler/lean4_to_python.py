@@ -1,6 +1,16 @@
 from lp2.ast.lean4_ast import *
 from lp2.ast.python_ast import *
 
+
+def _sanitize_identifier(name: str) -> str:
+    result = "".join("_" if not (c.isalnum() or c == "_") else c for c in name)
+    if not result or result[0].isdigit():
+        result = "_" + result
+    if not result.isidentifier():
+        result = "_" + result
+    return result
+
+
 _LEAN_TYPE_TO_PY = {
     "Int": PyName("int"),
     "Nat": PyName("int"),
@@ -57,7 +67,7 @@ def _cmd_to_stmt_ns(n: LeanNamespace) -> PyStmt | None:
     stmts = []
     for c in n.commands:
         stmts.extend(_cmd_to_stmts(c))
-    return PyClassDef(name=n.name, bases=[], body=stmts)
+    return PyClassDef(name=_sanitize_identifier(n.name), bases=[], body=stmts)
 
 
 _CMD_TO_STMT = {
@@ -81,7 +91,7 @@ def _cmd_to_stmt(node: LeanCommand) -> PyStmt | None:
 
 
 def _def_to_func(node: LeanDef) -> PyFunctionDef:
-    name = node.name.replace(".", "_")
+    name = _sanitize_identifier(node.name)
     py_args = []
     for p in node.params:
         py_ann = _lean_type_to_py(p.type) if p.type else None
@@ -131,10 +141,11 @@ def _structure_to_class(node: LeanStructure) -> PyClassDef:
     body = []
     for field in node.fields:
         py_ann = _lean_type_to_py(field.type) if field.type else None
+        field_name = _sanitize_identifier(field.name)
         if py_ann:
             body.append(
                 PyAnnAssign(
-                    target=PyName(field.name),
+                    target=PyName(field_name),
                     annotation=py_ann,
                     value=None,
                 )
@@ -142,11 +153,13 @@ def _structure_to_class(node: LeanStructure) -> PyClassDef:
         else:
             body.append(
                 PyAssign(
-                    target=PyName(field.name),
+                    target=PyName(field_name),
                     value=PyConstant(None),
                 )
             )
-    return PyClassDef(name=node.name, bases=[], body=body or [PyPass()])
+    return PyClassDef(
+        name=_sanitize_identifier(node.name), bases=[], body=body or [PyPass()]
+    )
 
 
 def _inductive_to_class(node: LeanInductive) -> PyClassDef:
@@ -157,7 +170,7 @@ def _inductive_to_class(node: LeanInductive) -> PyClassDef:
             field_types.append(_lean_type_to_py(f.type) if f.type else PyName("Any"))
         ctors.append((ctor.name, field_types))
     body = [PyPass()]
-    return PyClassDef(name=node.name, bases=[], body=body)
+    return PyClassDef(name=_sanitize_identifier(node.name), bases=[], body=body)
 
 
 def _ensure_return(stmts: list[PyStmt]) -> list[PyStmt]:
@@ -182,17 +195,24 @@ def _estmts_let(n: LeanLet) -> list[PyStmt]:
         params = [(p.name, None, None) for p in n.params]
         func_body = _expr_to_stmts(n.value)
         return [
-            PyFunctionDef(name=n.name, args=params, return_type=None, body=func_body)
+            PyFunctionDef(
+                name=_sanitize_identifier(n.name),
+                args=params,
+                return_type=None,
+                body=func_body,
+            )
         ] + inner
     inner = _expr_to_stmts(n.body)
     val = _expr_to_py(n.value)
-    return [PyAssign(target=PyName(n.name), value=val)] + inner
+    return [PyAssign(target=PyName(_sanitize_identifier(n.name)), value=val)] + inner
 
 
 def _estmts_have(n: LeanHave) -> list[PyStmt]:
     inner = _expr_to_stmts(n.body)
     val = _expr_to_py(n.value)
-    return [PyAssign(target=PyName(n.name or "_"), value=val)] + inner
+    return [
+        PyAssign(target=PyName(_sanitize_identifier(n.name or "_")), value=val)
+    ] + inner
 
 
 def _estmts_if(n: LeanIf) -> list[PyStmt]:
@@ -283,7 +303,7 @@ def _expr_py_ident(n: LeanIdent) -> PyExpr:
         return PyConstant(True)
     if n.name == "false":
         return PyConstant(False)
-    return PyName(id=n.name)
+    return PyName(id=_sanitize_identifier(n.name))
 
 
 def _expr_py_app(n: LeanApp) -> PyExpr:
@@ -342,6 +362,8 @@ def _expr_py_binop(n: LeanBinOp) -> PyExpr:
     right = _expr_to_py(n.right)
     if n.op == ">>=":
         return PyCall(func=PyName("bind"), args=[left, right], kwargs=[])
+    if n.op == "|>":
+        return PyCall(func=right, args=[left], kwargs=[])
     py_op = _OP_MAP.get(n.op, n.op)
     if py_op == "::":
         if isinstance(right, PyList):
@@ -358,9 +380,7 @@ def _expr_py_lambda(n: LeanLambda) -> PyExpr:
 
 
 def _expr_py_typearrow(n: LeanTypeArrow) -> PyExpr:
-    left = _expr_to_py(n.from_type)
-    right = _expr_to_py(n.to_type)
-    return PyBinOp(left=left, op="->", right=right)
+    return PyName("Any")
 
 
 def _expr_py_if(n: LeanIf) -> PyExpr:
@@ -394,7 +414,9 @@ def _expr_py_match(n: LeanMatch) -> PyExpr:
             result = PyIfExp(test=cond, body=body, orelse=result)
         elif isinstance(pat, LeanPatternIdent):
             cond = PyCompare(
-                left=subject, ops=["=="], comparators=[PyName(id=pat.name)]
+                left=subject,
+                ops=["=="],
+                comparators=[PyName(id=_sanitize_identifier(pat.name))],
             )
             result = PyIfExp(test=cond, body=body, orelse=result)
         else:
@@ -424,7 +446,7 @@ _EXPR_TO_PY = {
     LeanProj: lambda n: PyAttribute(value=_expr_to_py(n.expr), attr=n.field),
     LeanListLit: lambda n: PyList(elts=[_expr_to_py(e) for e in n.elts]),
     LeanTupleLit: lambda n: PyTuple(elts=[_expr_to_py(e) for e in n.elts]),
-    LeanStructInst: lambda n: PyName(n.struct_name),
+    LeanStructInst: lambda n: PyName(_sanitize_identifier(n.struct_name)),
     LeanMatch: _expr_py_match,
     LeanDo: lambda n: (
         _expr_to_py(n.last) if not n.stmts and n.last else PyName("do_block")
@@ -446,7 +468,7 @@ def _expr_to_py(node: LeanExpr) -> PyExpr:
 
 def _pattern_to_expr(node: LeanPattern) -> PyExpr:
     if isinstance(node, LeanPatternIdent):
-        return PyName(id=node.name)
+        return PyName(id=_sanitize_identifier(node.name))
     elif isinstance(node, LeanPatternWild):
         return PyName(id="_")
     elif isinstance(node, LeanPatternNum):
@@ -454,7 +476,7 @@ def _pattern_to_expr(node: LeanPattern) -> PyExpr:
     elif isinstance(node, LeanPatternCtor):
         if node.name in ("true", "false"):
             return PyConstant(value=node.name == "true")
-        return PyName(id=node.name)
+        return PyName(id=_sanitize_identifier(node.name))
     elif isinstance(node, LeanPatternOr):
         if node.patterns:
             return PyMatchOr(patterns=[_pattern_to_expr(p) for p in node.patterns])
@@ -470,7 +492,7 @@ def _pattern_to_expr(node: LeanPattern) -> PyExpr:
 def _type_py_ident(n: LeanIdent) -> PyExpr:
     if n.name in _LEAN_TYPE_TO_PY:
         return _LEAN_TYPE_TO_PY[n.name]
-    return PyName(id=n.name)
+    return PyName(id=_sanitize_identifier(n.name))
 
 
 def _type_py_app(n: LeanApp) -> PyExpr:
@@ -491,7 +513,7 @@ def _type_py_app(n: LeanApp) -> PyExpr:
             return PySubscript(value=PyName("set"), slice=arg)
         if base == "Prod":
             return PyTuple(elts=[PyName("Any"), PyName("Any")])
-        return PySubscript(value=PyName(base), slice=arg)
+        return PySubscript(value=PyName(_sanitize_identifier(base)), slice=arg)
     return PyName("Any")
 
 
